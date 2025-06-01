@@ -59,7 +59,7 @@ library
     import:           warnings
 
     -- Modules exported by the library.
-    exposed-modules:  Data.Autodiff, Data.Autodiff.Mode, Data.Autodiff.VectorSpace
+    exposed-modules:  Data.Autodiff, Data.Autodiff.Mode, Data.Autodiff.VectorSpace, Data.Autodiff.DVec
 
     -- Modules included in this library but not exported.
     other-modules: Data.Autodiff.Internal
