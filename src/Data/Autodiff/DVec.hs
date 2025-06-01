@@ -34,3 +34,4 @@ instance (Vector v a, Invariant m, Num a) => Vector (DVec v) (D s m a) where
   basicLength (MkV (MkD x _)) = basicLength x
   basicUnsafeSlice i n (MkV (MkD x x')) = MkV $ MkD (basicUnsafeSlice i n x) $ invmap (basicUnsafeSlice i n) (replicate i 0 ++) x'
   basicUnsafeIndexM (MkV (MkD x x')) i = liftA2 MkD (basicUnsafeIndexM x i) $ Box $ invmap (unBox . (`basicUnsafeIndexM` i)) (snoc $ replicate i 0) x'
+  elemseq (MkV (MkD v _)) (MkD x _) = elemseq v x
