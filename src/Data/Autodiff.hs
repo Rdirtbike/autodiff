@@ -4,7 +4,7 @@
 
 {-# HLINT ignore "Use drop1" #-}
 
-module Data.Autodiff (D, autodiff, asConst) where
+module Data.Autodiff (D, autodiff, asConst, asConstD) where
 
 import Data.Autodiff.Mode (Mode (..))
 import Data.Autodiff.VectorSpace (InnerSpace (..), VectorSpace (..))
@@ -22,6 +22,9 @@ autodiff f x = case f (MkD x start) of
 
 asConst :: (Real a, Fractional b) => D s m a -> b
 asConst (MkD x _) = realToFrac x
+
+asConstD :: (VectorSpace (m a)) => D s m a -> D s' m a
+asConstD (MkD x _) = MkD x zero
 
 instance (InnerSpace a, VectorSpace (m a), Scalar (m a) ~ Scalar a, Invariant m) => VectorSpace (D s m a) where
   type Scalar (D s m a) = D s m (Scalar a)
