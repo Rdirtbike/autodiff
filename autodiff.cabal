@@ -64,10 +64,11 @@ library
         Data.Autodiff.Mode,
         Data.Autodiff.VectorSpace,
         Data.Autodiff.DVec,
-        Data.Autodiff.DMVec,
 
     -- Modules included in this library but not exported.
-    other-modules: Data.Autodiff.Internal
+    other-modules:
+        Data.Autodiff.Internal,
+        Data.Autodiff.DMVec,
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
