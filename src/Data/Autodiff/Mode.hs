@@ -1,6 +1,6 @@
 {-# LANGUAGE TypeFamilies #-}
 
-module Data.Autodiff.Mode (Mode (..), ScalarMode, getScalar, ForwardMode, getDeriv, ReverseMode, getGradient) where
+module Data.Autodiff.Mode (Mode (..), ScalarMode, getScalar, ForwardMode, getDeriv, directionalDeriv, ReverseMode, getGradient, directionalGrad) where
 
 import Data.Functor.Contravariant (Op (Op))
 import Data.Functor.Identity (Identity (runIdentity))
@@ -24,6 +24,9 @@ type ForwardMode = (->)
 getDeriv :: (Num a) => ForwardMode a b -> b
 getDeriv f = f 1
 
+directionalDeriv :: a -> ForwardMode a b -> b
+directionalDeriv = flip ($)
+
 instance Mode (ForwardMode a) where
   type Start (ForwardMode a) b = a ~ b
   start = id
@@ -32,6 +35,9 @@ type ReverseMode = Op
 
 getGradient :: (Num b) => ReverseMode a b -> a
 getGradient (Op f) = f 1
+
+directionalGrad :: b -> ReverseMode a b -> a
+directionalGrad x (Op f) = f x
 
 instance Mode (ReverseMode a) where
   type Start (ReverseMode a) b = a ~ b

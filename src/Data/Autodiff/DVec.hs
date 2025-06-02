@@ -1,10 +1,11 @@
 {-# LANGUAGE TypeFamilies #-}
 
-module Data.Autodiff.DVec (DVec (..)) where
+module Data.Autodiff.DVec (DVec (..), liftV, liftS) where
 
 import Data.Autodiff.DMVec (DMVec (..), getOr0, prepend0s)
 import Data.Autodiff.Internal (D (..))
 import Data.Autodiff.VectorSpace (VectorSpace)
+import Data.Coerce (coerce)
 import Data.Functor.Invariant (Invariant (..))
 import Data.Kind (Type)
 import Data.STRef (newSTRef, readSTRef)
@@ -14,6 +15,12 @@ import Prelude hiding (drop, replicate, take, (++))
 data family DVec :: (Type -> Type) -> Type -> Type
 
 newtype instance DVec v (D s m a) = MkV {getV :: D s m (v a)}
+
+liftV :: (DVec v (D s m a) -> DVec w (D s m b)) -> D s m (v a) -> D s m (w b)
+liftV = coerce
+
+liftS :: (DVec v (D s m a) -> D s m b) -> D s m (v a) -> D s m b
+liftS = coerce
 
 type instance Mutable (DVec v) = DMVec v
 
