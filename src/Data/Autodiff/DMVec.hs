@@ -2,16 +2,16 @@
 
 module Data.Autodiff.DMVec (DMVec (..)) where
 
-import Control.Monad.ST
-import Data.Autodiff.Internal
-import Data.Autodiff.VectorSpace
-import Data.Functor.Invariant
-import Data.Kind
-import Data.STRef
-import Data.Vector.Generic (Mutable, Vector, replicate, snoc, unsafeIndex, unsafeUpd, (++))
-import Data.Vector.Generic qualified as I
-import Data.Vector.Generic.Mutable hiding (replicate)
-import Prelude hiding (replicate, (++))
+import Control.Monad.ST (ST)
+import Data.Autodiff.Internal (D (..))
+import Data.Autodiff.VectorSpace (VectorSpace (zero, (.+)))
+import Data.Functor.Invariant (Invariant (..))
+import Data.Kind (Type)
+import Data.Maybe (fromMaybe)
+import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef)
+import Data.Vector.Generic (Mutable, Vector, drop, length, replicate, snoc, take, unsafeUpd, (!?), (++))
+import Data.Vector.Generic.Mutable (MVector (..))
+import Prelude hiding (drop, length, read, replicate, take, (++))
 
 data family DMVec :: (Type -> Type) -> Type -> Type -> Type
 
@@ -19,12 +19,14 @@ data instance DMVec v s (D q m a) = MkMV (Mutable v s a) (ST s (STRef s (m (v a)
 
 instance (Vector v a, Invariant m, Num a, VectorSpace (m (v a))) => MVector (DMVec v) (D q m a) where
   basicLength (MkMV v _) = basicLength v
-  basicUnsafeSlice i n (MkMV v mv) = MkMV (basicUnsafeSlice i n v) $ mv >>= \v' -> v' <$ modifySTRef v' (invmap (I.basicUnsafeSlice i n) (replicate i 0 ++))
+  basicUnsafeSlice i n (MkMV v mv) = MkMV (basicUnsafeSlice i n v) $ mv >>= \v' -> v' <$ modifySTRef' v' (invmap (take n . drop i) (replicate i 0 ++))
   basicOverlaps (MkMV v _) (MkMV w _) = basicOverlaps v w
-  basicUnsafeNew n = flip MkMV (newSTRef zero) <$> basicUnsafeNew n
+  basicUnsafeNew n = liftA2 MkMV (basicUnsafeNew n) $ pure <$> newSTRef zero
   basicInitialize (MkMV v _) = basicInitialize v
-  basicUnsafeRead (MkMV v mv) i = liftA2 MkD (basicUnsafeRead v i) $ invmap (`unsafeIndex` i) (snoc $ replicate i 0) <$> (mv >>= readSTRef)
+  basicUnsafeRead (MkMV v mv) i = liftA2 MkD (basicUnsafeRead v i) $ invmap (fromMaybe 0 . (!? i)) (snoc $ replicate i 0) <$> (mv >>= readSTRef)
   basicUnsafeWrite (MkMV v mv) i (MkD x x') =
     basicUnsafeWrite v i x
       >> mv
-      >>= flip modifySTRef (\v' -> invmap (`unsafeUpd` [(i, 0)]) (`unsafeUpd` [(i, 0)]) v' .+ invmap (snoc $ replicate i 0) (`unsafeIndex` i) x')
+      >>= flip modifySTRef' (\v' -> invmap clearI clearI v' .+ invmap (snoc $ replicate i 0) (fromMaybe 0 . (!? i)) x')
+    where
+      clearI y = if i < length y then unsafeUpd y [(i, 0)] else y
