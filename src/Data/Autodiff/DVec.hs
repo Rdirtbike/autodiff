@@ -24,4 +24,4 @@ instance (Vector v a, Invariant m, Num a, VectorSpace (m (v a))) => Vector (DVec
   basicLength (MkV (MkD x _)) = basicLength x
   basicUnsafeSlice i n (MkV (MkD x x')) = MkV $ MkD (basicUnsafeSlice i n x) (invmap (take n . drop i) (replicate i 0 ++) x')
   basicUnsafeIndexM (MkV (MkD x x')) i = MkD <$> basicUnsafeIndexM x i <*> pure (invmap (fromMaybe 0 . (!? i)) (snoc $ replicate i 0) x')
-  elemseq (MkV (MkD v _)) (MkD x _) = elemseq v x
+  elemseq _ (MkD x _) = elemseq (undefined :: v a) x
