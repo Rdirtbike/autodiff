@@ -12,6 +12,7 @@ module Data.Autodiff.Mode
     getGradient,
     directionalGrad,
     MatrixMode,
+    HasBasis (..),
     getJacobian,
   )
 where
@@ -68,7 +69,7 @@ instance (Num a) => HasBasis [] [a] where
 
 newtype MatrixMode f a = Matrix (f a) deriving (Invariant, VectorSpace)
 
-getJacobian :: MatrixMode f (f a) -> f (f a)
+getJacobian :: MatrixMode f (g a) -> f (g a)
 getJacobian = coerce
 
 instance Mode (MatrixMode f) where
