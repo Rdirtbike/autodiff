@@ -1,9 +1,26 @@
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Data.Autodiff.Mode (Mode (..), ScalarMode, getScalar, ForwardMode, getDeriv, directionalDeriv, ReverseMode, getGradient, directionalGrad) where
+module Data.Autodiff.Mode
+  ( Mode (..),
+    ScalarMode,
+    getScalar,
+    ForwardMode,
+    getDeriv,
+    directionalDeriv,
+    ReverseMode,
+    getGradient,
+    directionalGrad,
+    MatrixMode,
+    getJacobian,
+  )
+where
 
+import Data.Autodiff.VectorSpace (VectorSpace)
+import Data.Coerce (coerce)
 import Data.Functor.Contravariant (Op (Op))
 import Data.Functor.Identity (Identity (runIdentity))
+import Data.Functor.Invariant (Invariant)
 import Data.Kind (Constraint)
 
 class Mode m where
@@ -42,3 +59,18 @@ directionalGrad x (Op f) = f x
 instance Mode (ReverseMode a) where
   type Start (ReverseMode a) b = a ~ b
   start = Op id
+
+class HasBasis f v | v -> f where
+  diag :: f v
+
+instance (Num a) => HasBasis [] [a] where
+  diag = [replicate i 0 ++ [1] | i <- [0 ..]]
+
+newtype MatrixMode f a = Matrix (f a) deriving (Invariant, VectorSpace)
+
+getJacobian :: MatrixMode f (f a) -> f (f a)
+getJacobian = coerce
+
+instance Mode (MatrixMode f) where
+  type Start (MatrixMode f) v = HasBasis f v
+  start = Matrix diag

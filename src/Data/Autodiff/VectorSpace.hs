@@ -1,9 +1,9 @@
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Data.Autodiff.VectorSpace (VectorSpace (..), InnerSpace (..)) where
 
-import Data.Autodiff.Mode (ForwardMode, ReverseMode, ScalarMode)
 import Data.Functor.Contravariant (Op (Op))
 import Data.Functor.Identity (Identity (..))
 import Data.Vector.Unboxed (Unbox, Vector, empty)
@@ -25,14 +25,14 @@ class VectorSpace v where
   default (.*) :: (Num v, Scalar v ~ v) => Scalar v -> v -> v
   (.*) = (*)
 
+infixl 6 .+
+
+infixl 7 .*
+
 class (VectorSpace v) => InnerSpace v where
   inner :: v -> v -> Scalar v
   default inner :: (Num v, Scalar v ~ v) => v -> v -> Scalar v
   inner x y = x * y
-
-infixl 6 .+
-
-infixl 7 .*
 
 instance VectorSpace Double
 
@@ -50,16 +50,16 @@ instance VectorSpace Integer
 
 instance InnerSpace Integer
 
-instance (Num a) => VectorSpace [a] where
-  type Scalar [a] = a
+instance (VectorSpace a) => VectorSpace [a] where
+  type Scalar [a] = Scalar a
   zero = []
-  (x : xs) .+ (y : ys) = x + y : xs .+ ys
+  (x : xs) .+ (y : ys) = x .+ y : xs .+ ys
   [] .+ ys = ys
   xs .+ [] = xs
-  (.*) = map . (*)
+  (.*) = map . (.*)
 
-instance (Num a) => InnerSpace [a] where
-  inner x = sum . zipWith (*) x
+instance (InnerSpace a, Num (Scalar a)) => InnerSpace [a] where
+  inner x = sum . zipWith inner x
 
 instance (Unbox a, Num a) => VectorSpace (Vector a) where
   type Scalar (Vector a) = a
@@ -76,23 +76,23 @@ instance (Unbox a, Num a) => VectorSpace (Vector a) where
 instance (Unbox a, Num a) => InnerSpace (Vector a) where
   inner x = U.sum . U.zipWith (*) x
 
-instance (Num a) => VectorSpace (ScalarMode a) where
-  type Scalar (ScalarMode a) = a
+instance (Num a) => VectorSpace (Identity a) where
+  type Scalar (Identity a) = a
   zero = 0
   (.+) = (+)
   (.*) = (*) . Identity
 
-instance (Num a) => InnerSpace (ScalarMode a) where
+instance (Num a) => InnerSpace (Identity a) where
   inner x = runIdentity . (*) x
 
-instance (VectorSpace b) => VectorSpace (ForwardMode a b) where
-  type Scalar (ForwardMode _ b) = Scalar b
+instance (VectorSpace b) => VectorSpace (a -> b) where
+  type Scalar (_ -> b) = Scalar b
   zero = const zero
   (.+) = liftA2 (.+)
   (.*) = fmap . (.*)
 
-instance (VectorSpace a) => VectorSpace (ReverseMode a b) where
-  type Scalar (ReverseMode a _) = Scalar a
+instance (VectorSpace a) => VectorSpace (Op a b) where
+  type Scalar (Op a _) = Scalar a
   zero = Op $ const zero
   Op f .+ Op g = Op $ liftA2 (.+) f g
   x .* Op f = Op $ (x .*) . f
