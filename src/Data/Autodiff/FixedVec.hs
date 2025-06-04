@@ -90,6 +90,6 @@ instance (KnownNat n, Unbox a) => G.Vector Vector (V n a) where
   basicUnsafeSlice i n (MkVV v) = let m = knownNatAsInt @n in MkVV $ unsafeSlice (i * m) (n * m) v
   basicUnsafeIndexM (MkVV v) i = let n = knownNatAsInt @n in pure $ MkV $ unsafeSlice (i * n) n v
   basicUnsafeCopy (MkM v) (MkVV w) = basicUnsafeCopy v w
-  elemseq _ = elemseq @Vector undefined
+  elemseq _ (MkV v) = seq v
 
 instance (KnownNat n, Unbox a) => Unbox (V n a)
