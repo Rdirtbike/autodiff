@@ -1,10 +1,13 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
+{-# HLINT ignore "Use zipFrom" #-}
 
 module Data.Autodiff.FixedVec (V) where
 
-import Data.Autodiff.Mode (HasBasis (..))
+import Data.Autodiff.Mode (HasBasis (..), Mode (..))
 import Data.Autodiff.VectorSpace (InnerSpace (..), VectorSpace (..))
 import Data.Foldable (traverse_)
 import Data.Vector.Generic (basicUnsafeCopy, basicUnsafeFreeze, elemseq)
@@ -20,8 +23,10 @@ import Data.Vector.Generic.Mutable
     basicUnsafeRead,
     basicUnsafeSlice,
     basicUnsafeWrite,
+    new,
+    write,
   )
-import Data.Vector.Generic.Mutable qualified as M (MVector (..), length, new, write)
+import Data.Vector.Generic.Mutable qualified as M (MVector (..), length)
 import Data.Vector.Unboxed
   ( MVector,
     Unbox,
@@ -58,8 +63,12 @@ instance (KnownNat n, Unbox a, InnerSpace a, Unbox (Scalar a), Num (Scalar a)) =
 instance (KnownNat n, Unbox a, Num a) => HasBasis (V n) (V n a) where
   diag = MkV $ MkVV $ create $ do
     let n = knownNatAsInt @n
-    v <- M.new (n * n)
-    v <$ traverse_ (\i -> M.write v (i * (n + 1)) 1) [0 .. n - 1]
+    v <- new (n * n)
+    v <$ traverse_ (\i -> write v (i * (n + 1)) 1) [0 .. n - 1]
+
+instance (KnownNat n) => Mode (V n) where
+  type Start (V n) a = HasBasis (V n) a
+  start = diag
 
 instance (KnownNat n, Unbox a, VectorSpace a) => IsList (V n a) where
   type Item (V n a) = a

@@ -11,17 +11,12 @@ module Data.Autodiff.Mode
     ReverseMode,
     getGradient,
     directionalGrad,
-    MatrixMode,
     HasBasis (..),
-    getJacobian,
   )
 where
 
-import Data.Autodiff.VectorSpace (VectorSpace)
-import Data.Coerce (coerce)
 import Data.Functor.Contravariant (Op (Op))
 import Data.Functor.Identity (Identity (runIdentity))
-import Data.Functor.Invariant (Invariant)
 import Data.Kind (Constraint)
 
 class Mode m where
@@ -67,11 +62,6 @@ class HasBasis f v | v -> f where
 instance (Num a) => HasBasis [] [a] where
   diag = [replicate i 0 ++ [1] | i <- [0 ..]]
 
-newtype MatrixMode f a = Matrix (f a) deriving (Invariant, VectorSpace)
-
-getJacobian :: MatrixMode f (g a) -> f (g a)
-getJacobian = coerce
-
-instance Mode (MatrixMode f) where
-  type Start (MatrixMode f) v = HasBasis f v
-  start = Matrix diag
+instance Mode [] where
+  type Start [] a = HasBasis [] a
+  start = diag
