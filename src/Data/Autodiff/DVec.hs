@@ -1,4 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Data.Autodiff.DVec (DVec (..), liftV, liftS) where
 
@@ -10,13 +11,16 @@ import Data.Functor.Invariant (Invariant (..))
 import Data.Kind (Type)
 import Data.STRef (newSTRef, readSTRef)
 import Data.Vector.Generic (Mutable, Vector (..), drop, replicate, take, (++))
+import GHC.IsList (IsList (Item))
 import Prelude hiding (drop, replicate, take, (++))
 
 data family DVec :: (Type -> Type) -> Type -> Type
 
-newtype instance DVec v (D s m a) = MkV {getV :: D s m (v a)}
+newtype instance DVec v (D s m a) = MkV {getV :: D s m (v a)} deriving (Eq, Ord)
 
 deriving instance (Invariant m, InnerSpace (v a), VectorSpace (m (v a)), Scalar (v a) ~ Scalar (m (v a))) => VectorSpace (DVec v (D s m a))
+
+deriving instance (Invariant m, IsList (v a), VectorSpace (m [Item (v a)]), Num (Item (v a))) => IsList (DVec v (D s m a))
 
 liftV :: (DVec v (D s m a) -> DVec w (D s m b)) -> D s m (v a) -> D s m (w b)
 liftV = coerce
