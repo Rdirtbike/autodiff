@@ -4,7 +4,7 @@ module Data.Autodiff.DVec (DVec (..), liftV, liftS) where
 
 import Data.Autodiff.DMVec (DMVec (..), getOr0, prepend0s)
 import Data.Autodiff.Internal (D (..))
-import Data.Autodiff.VectorSpace (VectorSpace)
+import Data.Autodiff.VectorSpace (InnerSpace, VectorSpace (Scalar))
 import Data.Coerce (coerce)
 import Data.Functor.Invariant (Invariant (..))
 import Data.Kind (Type)
@@ -15,6 +15,8 @@ import Prelude hiding (drop, replicate, take, (++))
 data family DVec :: (Type -> Type) -> Type -> Type
 
 newtype instance DVec v (D s m a) = MkV {getV :: D s m (v a)}
+
+deriving instance (Invariant m, InnerSpace (v a), VectorSpace (m (v a)), Scalar (v a) ~ Scalar (m (v a))) => VectorSpace (DVec v (D s m a))
 
 liftV :: (DVec v (D s m a) -> DVec w (D s m b)) -> D s m (v a) -> D s m (w b)
 liftV = coerce
