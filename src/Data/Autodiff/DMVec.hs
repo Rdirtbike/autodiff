@@ -8,9 +8,9 @@ import Data.Functor.Invariant (Invariant (..))
 import Data.Kind (Type)
 import Data.Maybe (fromMaybe)
 import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef)
-import Data.Vector.Generic (Mutable, Vector, length, replicate, snoc, sum, unsafeUpd, (!?))
+import Data.Vector.Generic (Mutable, Vector, length, replicate, slice, snoc, sum, unsafeUpd, (!?), (++))
 import Data.Vector.Generic.Mutable (MVector (..))
-import Prelude hiding (length, replicate, sum)
+import Prelude hiding (length, replicate, sum, (++))
 
 data family DMVec :: (Type -> Type) -> Type -> Type -> Type
 
@@ -30,6 +30,12 @@ instance (Vector v a, Invariant m, Num a, VectorSpace (m (v a))) => MVector (DMV
   basicInitialize (MkMV _ v _) = basicInitialize v
   basicUnsafeReplicate n (MkD x x') = MkMV 0 <$> basicUnsafeReplicate n x <*> newSTRef (invmap (replicate n) sum x')
   basicUnsafeRead (MkMV o v vr) i = MkD <$> basicUnsafeRead v i <*> (invmap (getOr0 $ i + o) (prepend0s $ i + o) <$> readSTRef vr)
-  basicUnsafeWrite (MkMV o v vr) i (MkD x x') = basicUnsafeWrite v i x *> modifySTRef' vr (\v' -> invmap clearI clearI v' .+ invmap (prepend0s $ i + o) (getOr0 $ i + o) x')
-    where
-      clearI y = if i + o < length y then unsafeUpd y [(i + o, 0)] else y
+  basicUnsafeWrite (MkMV o v vr) i (MkD x x') = do
+    basicUnsafeWrite v i x
+    let clearI y = if i + o < length y then unsafeUpd y [(i + o, 0)] else y
+    modifySTRef' vr $ \v' -> invmap clearI clearI v' .+ invmap (prepend0s $ i + o) (getOr0 $ i + o) x'
+  basicSet (MkMV o v vr) (MkD x x') = do
+    basicSet v x
+    let n = basicLength v
+        clearRange a = unsafeUpd a [(i, 0) | i <- [o .. min (o + n) (length a) - 1]]
+    modifySTRef' vr $ \v' -> invmap clearRange clearRange v' .+ invmap ((replicate o 0 ++) . replicate n) (sum . slice o n) x'
