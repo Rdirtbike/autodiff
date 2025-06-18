@@ -8,9 +8,9 @@ import Data.Functor.Invariant (Invariant (..))
 import Data.Kind (Type)
 import Data.Maybe (fromMaybe)
 import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef)
-import Data.Vector.Generic (Mutable, Vector, length, replicate, snoc, unsafeUpd, (!?))
+import Data.Vector.Generic (Mutable, Vector, length, replicate, snoc, sum, unsafeUpd, (!?))
 import Data.Vector.Generic.Mutable (MVector (..))
-import Prelude hiding (length, replicate)
+import Prelude hiding (length, replicate, sum)
 
 data family DMVec :: (Type -> Type) -> Type -> Type -> Type
 
@@ -28,6 +28,7 @@ instance (Vector v a, Invariant m, Num a, VectorSpace (m (v a))) => MVector (DMV
   basicOverlaps (MkMV _ v vr) (MkMV _ w wr) = basicOverlaps v w || vr == wr
   basicUnsafeNew n = MkMV 0 <$> basicUnsafeNew n <*> newSTRef zero
   basicInitialize (MkMV _ v _) = basicInitialize v
+  basicUnsafeReplicate n (MkD x x') = MkMV 0 <$> basicUnsafeReplicate n x <*> newSTRef (invmap (replicate n) sum x')
   basicUnsafeRead (MkMV o v vr) i = MkD <$> basicUnsafeRead v i <*> (invmap (getOr0 $ i + o) (prepend0s $ i + o) <$> readSTRef vr)
   basicUnsafeWrite (MkMV o v vr) i (MkD x x') = basicUnsafeWrite v i x *> modifySTRef' vr (\v' -> invmap clearI clearI v' .+ invmap (prepend0s $ i + o) (getOr0 $ i + o) x')
     where
