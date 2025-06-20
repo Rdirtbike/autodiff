@@ -1,9 +1,8 @@
+{-# HLINT ignore "Use drop1" #-}
+{-# HLINT ignore "Parenthesize unary negation" #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-
-{-# HLINT ignore "Use drop1" #-}
-{-# HLINT ignore "Parenthesize unary negation" #-}
 
 module Data.Autodiff.Internal (D (..)) where
 
@@ -12,7 +11,13 @@ import Data.Autodiff.Mode (Mode (dmap, lift, liftD2))
 import Data.Autodiff.VectorSpace (InnerSpace (..), VectorSpace (..))
 import Data.List (uncons, unfoldr)
 import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Vector qualified as V
+import Data.Vector.Generic qualified as G
+import Data.Vector.Primitive qualified as P
+import Data.Vector.Storable qualified as S
+import Data.Vector.Unboxed qualified as U
 import GHC.IsList (IsList (..))
+import Prelude hiding (length)
 
 data D s m a = MkD a (m a)
 
@@ -74,3 +79,35 @@ instance (Mode m, IsList l, Num (Item l)) => IsList (D s m l) where
     zipWith MkD (toList xs) $
       unfoldr (\x -> Just (dmap (fromMaybe 0 . listToMaybe) (: []) x, dmap (drop 1) (0 :) x)) $
         dmap toList fromList xs'
+
+toV :: (Mode m, G.Vector v a, Num a) => [D s m a] -> D s m (v a)
+toV xs =
+  MkD (G.fromList $ map (\(MkD x _) -> x) xs) $
+    dmap G.fromList G.toList $
+      foldr (\(MkD _ x') xs' -> liftD2 (:) (fromMaybe (0, []) . uncons) x' xs') (lift []) xs
+
+fromV :: (Mode m, G.Vector v a, Num a) => D s m (v a) -> [D s m a]
+fromV (MkD xs xs') =
+  zipWith MkD (G.toList xs) $
+    unfoldr (\d -> Just (dmap (fromMaybe 0 . listToMaybe) (: []) d, dmap (drop 1) (0 :) d)) $
+      dmap G.toList G.fromList xs'
+
+instance {-# OVERLAPPING #-} (Mode m, U.Unbox a, Num a) => IsList (D s m (U.Vector a)) where
+  type Item (D s m (U.Vector a)) = D s m (Item (U.Vector a))
+  fromList = toV
+  toList = fromV
+
+instance {-# OVERLAPPING #-} (Mode m, Num a) => IsList (D s m (V.Vector a)) where
+  type Item (D s m (V.Vector a)) = D s m (Item (V.Vector a))
+  fromList = toV
+  toList = fromV
+
+instance {-# OVERLAPPING #-} (Mode m, S.Storable a, Num a) => IsList (D s m (S.Vector a)) where
+  type Item (D s m (S.Vector a)) = D s m (Item (S.Vector a))
+  fromList = toV
+  toList = fromV
+
+instance {-# OVERLAPPING #-} (Mode m, P.Prim a, Num a) => IsList (D s m (P.Vector a)) where
+  type Item (D s m (P.Vector a)) = D s m (Item (P.Vector a))
+  fromList = toV
+  toList = fromV
