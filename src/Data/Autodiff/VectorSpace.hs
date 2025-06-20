@@ -1,11 +1,8 @@
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 module Data.Autodiff.VectorSpace (VectorSpace (..), InnerSpace (..)) where
 
-import Data.Functor.Contravariant (Op (Op))
-import Data.Functor.Identity (Identity (..))
 import Data.Vector.Unboxed (Unbox, Vector, empty)
 import Data.Vector.Unboxed qualified as U
 
@@ -50,16 +47,16 @@ instance VectorSpace Integer
 
 instance InnerSpace Integer
 
-instance (VectorSpace a) => VectorSpace [a] where
-  type Scalar [a] = Scalar a
+instance (Num a) => VectorSpace [a] where
+  type Scalar [a] = a
   zero = []
-  (x : xs) .+ (y : ys) = x .+ y : xs .+ ys
+  (x : xs) .+ (y : ys) = x + y : xs .+ ys
   [] .+ ys = ys
   xs .+ [] = xs
-  (.*) = map . (.*)
+  (.*) = map . (*)
 
-instance (InnerSpace a, Num (Scalar a)) => InnerSpace [a] where
-  inner x = sum . zipWith inner x
+instance (Num a) => InnerSpace [a] where
+  inner x = sum . zipWith (*) x
 
 instance (Unbox a, Num a) => VectorSpace (Vector a) where
   type Scalar (Vector a) = a
@@ -75,24 +72,3 @@ instance (Unbox a, Num a) => VectorSpace (Vector a) where
 
 instance (Unbox a, Num a) => InnerSpace (Vector a) where
   inner x = U.sum . U.zipWith (*) x
-
-instance (Num a) => VectorSpace (Identity a) where
-  type Scalar (Identity a) = a
-  zero = 0
-  (.+) = (+)
-  (.*) = (*) . Identity
-
-instance (Num a) => InnerSpace (Identity a) where
-  inner x = runIdentity . (*) x
-
-instance (VectorSpace b) => VectorSpace (a -> b) where
-  type Scalar (_ -> b) = Scalar b
-  zero = const zero
-  (.+) = liftA2 (.+)
-  (.*) = fmap . (.*)
-
-instance (VectorSpace a) => VectorSpace (Op a b) where
-  type Scalar (Op a _) = Scalar a
-  zero = Op $ const zero
-  Op f .+ Op g = Op $ liftA2 (.+) f g
-  x .* Op f = Op $ (x .*) . f

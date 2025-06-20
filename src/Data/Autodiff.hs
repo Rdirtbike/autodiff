@@ -9,7 +9,7 @@ autodiff :: (Mode m, Start m a) => (forall s. D s m a -> D s m b) -> a -> (b, m 
 autodiff f x = case f (MkD x start) of
   MkD y f' -> (y, f')
 
-gradient :: (Num b) => (forall s. DVec v (D s (ReverseMode (v a)) a) -> D s (ReverseMode (v a)) b) -> v a -> (b, v a)
+gradient :: (VectorSpace (v a), Num b) => (forall s. DVec v (D s (ReverseMode (v a)) a) -> D s (ReverseMode (v a)) b) -> v a -> (b, v a)
 gradient f x = case f (MkV (MkD x start)) of
   MkD y f' -> (y, getGradient f')
 

@@ -1,4 +1,3 @@
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Data.Autodiff.Mode
@@ -11,17 +10,20 @@ module Data.Autodiff.Mode
     ReverseMode,
     getGradient,
     directionalGrad,
-    HasBasis (..),
   )
 where
 
-import Data.Functor.Contravariant (Op (Op))
+import Data.Autodiff.VectorSpace (VectorSpace (zero, (.+)))
+import Data.Functor.Contravariant (Op (Op), contramap)
 import Data.Functor.Identity (Identity (runIdentity))
 import Data.Kind (Constraint)
 
 class Mode m where
   type Start m a :: Constraint
   start :: (Start m a) => m a
+  dmap :: (a -> b) -> (b -> a) -> m a -> m b
+  liftD2 :: (a -> b -> c) -> (c -> (a, b)) -> m a -> m b -> m c
+  lift :: a -> m a
 
 type ScalarMode = Identity
 
@@ -31,6 +33,9 @@ getScalar = runIdentity
 instance Mode ScalarMode where
   type Start ScalarMode a = Num a
   start = 1
+  dmap f _ = fmap f
+  liftD2 f _ = liftA2 f
+  lift = pure
 
 type ForwardMode = (->)
 
@@ -43,6 +48,9 @@ directionalDeriv = flip ($)
 instance Mode (ForwardMode a) where
   type Start (ForwardMode a) b = a ~ b
   start = id
+  dmap f _ = fmap f
+  liftD2 f _ = liftA2 f
+  lift = pure
 
 type ReverseMode = Op
 
@@ -52,16 +60,10 @@ getGradient (Op f) = f 1
 directionalGrad :: b -> ReverseMode a b -> a
 directionalGrad x (Op f) = f x
 
-instance Mode (ReverseMode a) where
+instance (VectorSpace a) => Mode (ReverseMode a) where
   type Start (ReverseMode a) b = a ~ b
   start = Op id
-
-class HasBasis f v | v -> f where
-  diag :: f v
-
-instance (Num a) => HasBasis [] [a] where
-  diag = [replicate i 0 ++ [1] | i <- [0 ..]]
-
-instance Mode [] where
-  type Start [] a = HasBasis [] a
-  start = diag
+  dmap _ = contramap
+  liftD2 _ f (Op g) (Op h) = Op $ \x -> case f x of
+    (y, z) -> g y .+ h z
+  lift _ = Op $ const zero

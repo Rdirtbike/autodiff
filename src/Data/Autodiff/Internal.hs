@@ -3,50 +3,56 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 {-# HLINT ignore "Use drop1" #-}
+{-# HLINT ignore "Parenthesize unary negation" #-}
 
 module Data.Autodiff.Internal (D (..)) where
 
+import Control.Arrow ((&&&))
+import Data.Autodiff.Mode (Mode (dmap, lift, liftD2))
 import Data.Autodiff.VectorSpace (InnerSpace (..), VectorSpace (..))
-import Data.Bifunctor (Bifunctor (bimap))
-import Data.Functor.Invariant (Invariant (..))
-import Data.List (unfoldr)
+import Data.List (uncons, unfoldr)
 import Data.Maybe (fromMaybe, listToMaybe)
 import GHC.IsList (IsList (..))
 
 data D s m a = MkD a (m a)
 
-instance (InnerSpace a, VectorSpace (m a), Scalar (m a) ~ Scalar a, Invariant m) => VectorSpace (D s m a) where
+scalar :: (Mode m, Num a) => (a -> a) -> (a -> a) -> D s m a -> D s m a
+scalar f f' (MkD x x') = MkD (f x) $ dmap (* f' x) (* f' x) x'
+
+instance (Mode m, InnerSpace a) => VectorSpace (D s m a) where
   type Scalar (D s m a) = D s m (Scalar a)
-  zero = MkD zero zero
-  MkD x x' .+ MkD y y' = MkD (x .+ y) (x' .+ y')
-  MkD x x' .* MkD y y' = MkD (x .* y) (x .* y' .+ invmap (.* y) (inner y) x')
+  zero = MkD zero $ lift zero
+  MkD x xd .+ MkD y yd = MkD (x .+ y) $ liftD2 (.+) (id &&& id) xd yd
+  MkD x xd .* MkD y yd = MkD (x .* y) $ liftD2 (\x' y' -> x' .* y .+ x .* y') (inner y &&& (.*) x) xd yd
 
-instance (Num a, VectorSpace (m a), Scalar (m a) ~ a) => Num (D s m a) where
-  MkD x x' + MkD y y' = MkD (x + y) (x' .+ y')
-  MkD x x' * MkD y y' = MkD (x * y) (x .* y' .+ y .* x')
-  negate (MkD x x') = MkD (-x) ((-1) .* x')
-  abs (MkD x x') = MkD (abs x) (signum x .* x')
-  signum (MkD x _) = MkD (signum x) zero
-  fromInteger x = MkD (fromInteger x) zero
+instance (Mode m, Num a) => Num (D s m a) where
+  MkD x xd + MkD y yd = MkD (x + y) $ liftD2 (+) (id &&& id) xd yd
+  MkD x xd * MkD y yd = MkD (x * y) $ liftD2 (\x' y' -> x' * y + x * y') ((*) y &&& (*) x) xd yd
+  MkD x xd - MkD y yd = MkD (x - y) $ liftD2 (-) (id &&& negate) xd yd
+  negate = scalar negate negate
+  abs = scalar abs signum
+  signum (MkD x _) = MkD (signum x) $ lift 0
+  fromInteger x = MkD (fromInteger x) $ lift 0
 
-instance (Fractional a, VectorSpace (m a), Scalar (m a) ~ a) => Fractional (D s m a) where
-  recip (MkD x x') = MkD (1 / x) ((-1) / (x * x) .* x')
-  fromRational x = MkD (fromRational x) zero
+instance (Mode m, Fractional a) => Fractional (D s m a) where
+  MkD x xd / MkD y yd = MkD (x / y) $ liftD2 (\x' y' -> (x' * y - x * y') / (y * y)) ((/ y) &&& (*) (-x / (y * y))) xd yd
+  recip = scalar recip $ \x -> -1 / (x * x)
+  fromRational x = MkD (fromRational x) $ lift 0
 
-instance (Floating a, VectorSpace (m a), Scalar (m a) ~ a) => Floating (D s m a) where
-  pi = MkD pi zero
-  exp (MkD x x') = let y = exp x in MkD y (y .* x')
-  log (MkD x x') = MkD (log x) (1 / x .* x')
-  sin (MkD x x') = MkD (sin x) (cos x .* x')
-  cos (MkD x x') = MkD (cos x) ((-sin x) .* x')
-  asin (MkD x x') = MkD (asin x) (1 / sqrt (1 - x * x) .* x')
-  acos (MkD x x') = MkD (acos x) ((-1) / sqrt (1 - x * x) .* x')
-  atan (MkD x x') = MkD (atan x) (1 / (1 + x * x) .* x')
-  sinh (MkD x x') = MkD (sinh x) (cosh x .* x')
-  cosh (MkD x x') = MkD (cosh x) (sinh x .* x')
-  asinh (MkD x x') = MkD (asinh x) (1 / sqrt (x * x + 1) .* x')
-  acosh (MkD x x') = MkD (acosh x) (1 / sqrt (x * x - 1) .* x')
-  atanh (MkD x x') = MkD (atanh x) (1 / (1 - x * x) .* x')
+instance (Mode m, Floating a) => Floating (D s m a) where
+  pi = MkD pi $ lift 0
+  exp = scalar exp exp
+  log = scalar log recip
+  sin = scalar sin cos
+  cos = scalar cos (negate . sin)
+  asin = scalar asin $ \x -> 1 / sqrt (1 - x * x)
+  acos = scalar acos $ \x -> -1 / sqrt (1 - x * x)
+  atan = scalar atan $ \x -> 1 / (1 + x * x)
+  sinh = scalar sinh cosh
+  cosh = scalar cosh sinh
+  asinh = scalar asinh $ \x -> 1 / sqrt (x * x + 1)
+  acosh = scalar acosh $ \x -> 1 / sqrt (x * x - 1)
+  atanh = scalar atanh $ \x -> 1 / (1 - x * x)
 
 instance (Eq b) => Eq (D m a b) where
   MkD x _ == MkD y _ = x == y
@@ -54,17 +60,17 @@ instance (Eq b) => Eq (D m a b) where
 instance (Ord b) => Ord (D m a b) where
   compare (MkD x _) (MkD y _) = compare x y
 
-instance (IsList l, Invariant m, VectorSpace (m [Item l]), Num (Item l)) => IsList (D s m l) where
+instance (Mode m, IsList l, Num (Item l)) => IsList (D s m l) where
   type Item (D s m l) = D s m (Item l)
-  fromList = uncurry MkD . bimap fromList (invmap fromList toList . test) . unzip . fmap (\(MkD x x') -> (x, x'))
-  fromListN n = uncurry MkD . bimap (fromListN n) (invmap (fromListN n) toList . test) . unzip . fmap (\(MkD x x') -> (x, x'))
-  toList (MkD xs xs') = zipWith MkD (toList xs) $ test' $ invmap toList fromList xs'
-
-headOr0 :: (Num a) => [a] -> a
-headOr0 = fromMaybe 0 . listToMaybe
-
-test :: (Invariant m, VectorSpace (m [a]), Num a) => [m a] -> m [a]
-test = foldr (\x xs -> invmap (: []) headOr0 x .+ invmap (0 :) (drop 1) xs) zero
-
-test' :: (Invariant m, Num a) => m [a] -> [m a]
-test' = unfoldr $ \xs -> Just (invmap headOr0 (: []) xs, invmap (drop 1) (0 :) xs)
+  fromList xs =
+    MkD (fromList $ map (\(MkD x _) -> x) xs) $
+      dmap fromList toList $
+        foldr (\(MkD _ x') xs' -> liftD2 (:) (fromMaybe (0, []) . uncons) x' xs') (lift []) xs
+  fromListN n xs =
+    MkD (fromListN n $ map (\(MkD x _) -> x) xs) $
+      dmap (fromListN n) toList $
+        foldr (\(MkD _ x') xs' -> liftD2 (:) (fromMaybe (0, []) . uncons) x' xs') (lift []) xs
+  toList (MkD xs xs') =
+    zipWith MkD (toList xs) $
+      unfoldr (\x -> Just (dmap (fromMaybe 0 . listToMaybe) (: []) x, dmap (drop 1) (0 :) x)) $
+        dmap toList fromList xs'

@@ -2,13 +2,13 @@
 
 module Data.Autodiff.DMVec (DMVec (..), getOr0, prepend0s) where
 
+import Control.Arrow ((&&&))
 import Data.Autodiff.Internal (D (..))
-import Data.Autodiff.VectorSpace (VectorSpace (zero, (.+)))
-import Data.Functor.Invariant (Invariant (..))
+import Data.Autodiff.Mode (Mode (dmap, lift, liftD2))
 import Data.Kind (Type)
 import Data.Maybe (fromMaybe)
 import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef)
-import Data.Vector.Generic (Mutable, Vector, length, replicate, slice, snoc, sum, unsafeUpd, (!?), (++))
+import Data.Vector.Generic (Mutable, Vector, empty, length, replicate, snoc, sum, unsafeUpd, (!?), (++))
 import Data.Vector.Generic.Mutable (MVector (..))
 import Prelude hiding (length, replicate, sum, (++))
 
@@ -22,20 +22,21 @@ getOr0 i = fromMaybe 0 . (!? i)
 prepend0s :: (Vector v a, Num a) => Int -> a -> v a
 prepend0s i = snoc $ replicate i 0
 
-instance (Vector v a, Invariant m, Num a, VectorSpace (m (v a))) => MVector (DMVec v) (D q m a) where
+instance (Mode m, Vector v a, Num a) => MVector (DMVec v) (D q m a) where
   basicLength (MkMV _ v _) = basicLength v
   basicUnsafeSlice i n (MkMV o v vr) = MkMV (o + i) (basicUnsafeSlice i n v) vr
   basicOverlaps (MkMV _ v vr) (MkMV _ w wr) = basicOverlaps v w || vr == wr
-  basicUnsafeNew n = MkMV 0 <$> basicUnsafeNew n <*> newSTRef zero
+  basicUnsafeNew n = MkMV 0 <$> basicUnsafeNew n <*> newSTRef (lift empty)
   basicInitialize (MkMV _ v _) = basicInitialize v
-  basicUnsafeReplicate n (MkD x x') = MkMV 0 <$> basicUnsafeReplicate n x <*> newSTRef (invmap (replicate n) sum x')
-  basicUnsafeRead (MkMV o v vr) i = MkD <$> basicUnsafeRead v i <*> (invmap (getOr0 $ i + o) (prepend0s $ i + o) <$> readSTRef vr)
-  basicUnsafeWrite (MkMV o v vr) i (MkD x x') = do
+  basicUnsafeReplicate n (MkD x x') = MkMV 0 <$> basicUnsafeReplicate n x <*> newSTRef (dmap (replicate n) sum x')
+  basicUnsafeRead (MkMV o v vr) i =
+    let i' = i + o
+     in MkD <$> basicUnsafeRead v i <*> (dmap (getOr0 i') (prepend0s i') <$> readSTRef vr)
+  basicUnsafeWrite (MkMV o v vr) i (MkD x xd) = do
     basicUnsafeWrite v i x
-    let clearI y = if i + o < length y then unsafeUpd y [(i + o, 0)] else y
-    modifySTRef' vr $ \v' -> invmap clearI clearI v' .+ invmap (prepend0s $ i + o) (getOr0 $ i + o) x'
-  basicSet (MkMV o v vr) (MkD x x') = do
-    basicSet v x
-    let n = basicLength v
-        clearRange a = unsafeUpd a [(i, 0) | i <- [o .. min (o + n) (length a) - 1]]
-    modifySTRef' vr $ \v' -> invmap clearRange clearRange v' .+ invmap ((replicate o 0 ++) . replicate n) (sum . slice o n) x'
+    let i' = i + o
+        clearI y = if i' < length y then unsafeUpd y [(i + o, 0)] else y
+        updI x' v' =
+          let n = length v'
+           in if i' < n then unsafeUpd v' [(i', x')] else v' ++ replicate (i' - n) 0 `snoc` x'
+    modifySTRef' vr $ liftD2 updI (getOr0 i' &&& clearI) xd

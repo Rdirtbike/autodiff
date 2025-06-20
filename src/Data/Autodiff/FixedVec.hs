@@ -7,9 +7,7 @@
 
 module Data.Autodiff.FixedVec (V) where
 
-import Data.Autodiff.Mode (HasBasis (..), Mode (..))
 import Data.Autodiff.VectorSpace (InnerSpace (..), VectorSpace (..))
-import Data.Foldable (traverse_)
 import Data.Vector.Generic (basicUnsafeCopy, basicUnsafeFreeze, elemseq)
 import Data.Vector.Generic qualified as G (Vector (..))
 import Data.Vector.Generic.Mutable
@@ -23,15 +21,12 @@ import Data.Vector.Generic.Mutable
     basicUnsafeRead,
     basicUnsafeSlice,
     basicUnsafeWrite,
-    new,
-    write,
   )
 import Data.Vector.Generic.Mutable qualified as M (MVector (..), length)
 import Data.Vector.Unboxed
   ( MVector,
     Unbox,
     Vector,
-    create,
     freeze,
     length,
     map,
@@ -59,16 +54,6 @@ instance (KnownNat n, Unbox a, VectorSpace a) => VectorSpace (V n a) where
 
 instance (KnownNat n, Unbox a, InnerSpace a, Unbox (Scalar a), Num (Scalar a)) => InnerSpace (V n a) where
   inner (MkV v) (MkV w) = sum $ zipWith inner v w
-
-instance (KnownNat n, Unbox a, Num a) => HasBasis (V n) (V n a) where
-  diag = MkV $ MkVV $ create $ do
-    let n = knownNatAsInt @n
-    v <- new (n * n)
-    v <$ traverse_ (\i -> write v (i * (n + 1)) 1) [0 .. n - 1]
-
-instance (KnownNat n) => Mode (V n) where
-  type Start (V n) a = HasBasis (V n) a
-  start = diag
 
 instance (KnownNat n, Unbox a, VectorSpace a) => IsList (V n a) where
   type Item (V n a) = a
