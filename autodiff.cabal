@@ -75,10 +75,17 @@ library
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
-    build-depends:    base ^>=4.19.2.0, vector, invariant
+    build-depends:    base ^>=4.19.2.0, vector
 
     -- Directories containing source files.
     hs-source-dirs:   src
 
     -- Base language which the package is written in.
     default-language: GHC2021
+
+executable test
+    import: warnings
+    main-is: Test.hs
+    build-depends: base, autodiff, vector
+    default-language: GHC2021
+    ghc-options: -ddump-simpl -ddump-to-file -ddump-simpl-stats

@@ -12,14 +12,13 @@ import Data.Autodiff.VectorSpace (InnerSpace (..), VectorSpace (..))
 import Data.Bool (bool)
 import Data.Foldable (foldl')
 import Data.List (uncons, unfoldr)
-import Data.Maybe (fromJust, fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Vector qualified as V
 import Data.Vector.Generic qualified as G
 import Data.Vector.Primitive qualified as P
 import Data.Vector.Storable qualified as S
 import Data.Vector.Unboxed qualified as U
 import GHC.IsList (IsList (..))
-import Prelude hiding (length)
 
 data D s m a = MkD a (m a)
 
@@ -85,12 +84,15 @@ instance (Mode m, IsList l, Num (Item l)) => IsList (D s m l) where
 toV :: (Mode m, G.Vector v a, Num a) => [D s m a] -> D s m (v a)
 toV xs =
   MkD (G.fromList $ map (\(MkD x _) -> x) xs) $
-    foldr (\(MkD _ x') xs' -> liftD2 G.cons (fromJust . G.uncons) x' xs') (lift G.empty) xs
+    foldr (\(MkD _ x') xs' -> liftD2 G.cons (G.unsafeHead &&& G.unsafeTail) x' xs') (lift G.empty) xs
 
 toVN :: (Mode m, G.Vector v a, Num a) => Int -> [D s m a] -> D s m (v a)
 toVN n xs =
   MkD (G.fromListN n $ map (\(MkD x _) -> x) xs) . snd $
-    foldl' (\(i, xs') (MkD _ x') -> (i + 1, liftD2 (\x v -> G.unsafeUpd v [(i, x)]) ((`G.unsafeIndex` i) &&& id) x' xs')) (0, lift $ G.replicate n 0) xs
+    foldl'
+      (\(i, xs') (MkD _ x') -> (i + 1, liftD2 (\x v -> G.unsafeUpd v [(i, x)]) ((`G.unsafeIndex` i) &&& id) x' xs'))
+      (0, lift $ G.replicate n 0)
+      xs
 
 fromV :: (Mode m, G.Vector v a, Num a) => D s m (v a) -> [D s m a]
 fromV (MkD xs xs') =
