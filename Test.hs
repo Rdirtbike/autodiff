@@ -5,9 +5,13 @@ import Data.Autodiff.Mode
 import Data.Bifunctor
 import Data.Vector.Unboxed (Vector)
 import GHC.IsList
+import System.Environment
 
 main :: IO ()
-main = print $ second getDeriv $ autodiff f 5
-
-f :: (Mode m) => D s m Int -> D s m (Vector Int)
-f x = fromList $ zipWith (^) (replicate 5 x) [1 :: Int ..]
+main = do
+  args <- getArgs
+  case args of
+    [] -> putStrLn "Need arguemnt"
+    x : _ -> do
+      n <- readIO @Int x
+      print $ second getGradient $ autodiff (product . toList) $ fromList @(Vector _) [1 .. n]

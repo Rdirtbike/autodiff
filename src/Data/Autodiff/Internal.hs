@@ -9,15 +9,14 @@ module Data.Autodiff.Internal (D (..)) where
 import Control.Arrow ((&&&))
 import Data.Autodiff.Mode (Mode (dmap, lift, liftD2))
 import Data.Autodiff.VectorSpace (InnerSpace (..), VectorSpace (..))
-import Data.Bool (bool)
-import Data.Foldable (foldl')
 import Data.List (uncons, unfoldr)
 import Data.Maybe (fromMaybe, listToMaybe)
-import Data.Vector qualified as V
+import Data.Vector qualified as Vector
 import Data.Vector.Generic qualified as G
-import Data.Vector.Primitive qualified as P
-import Data.Vector.Storable qualified as S
-import Data.Vector.Unboxed qualified as U
+import Data.Vector.Primitive qualified as Primitive
+import Data.Vector.Storable qualified as Storable
+import Data.Vector.Strict qualified as Strict
+import Data.Vector.Unboxed qualified as Unboxed
 import GHC.IsList (IsList (..))
 
 data D s m a = MkD a (m a)
@@ -69,58 +68,62 @@ instance (Ord b) => Ord (D m a b) where
 instance (Mode m, IsList l, Num (Item l)) => IsList (D s m l) where
   type Item (D s m l) = D s m (Item l)
   fromList xs =
-    MkD (fromList $ map (\(MkD x _) -> x) xs) $
-      dmap fromList toList $
-        foldr (\(MkD _ x') xs' -> liftD2 (:) (fromMaybe (0, []) . uncons) x' xs') (lift []) xs
+    MkD (fromList $ map (\(MkD x _) -> x) xs) . dmap fromList toList $
+      foldr (\(MkD _ x') xs' -> liftD2 (:) (fromMaybe (0, []) . uncons) x' xs') (lift []) xs
   fromListN n xs =
-    MkD (fromListN n $ map (\(MkD x _) -> x) xs) $
-      dmap (fromListN n) toList $
-        foldr (\(MkD _ x') xs' -> liftD2 (:) (fromMaybe (0, []) . uncons) x' xs') (lift []) xs
+    MkD (fromListN n $ map (\(MkD x _) -> x) xs) . dmap (fromListN n) toList $
+      foldr (\(MkD _ x') xs' -> liftD2 (:) (fromMaybe (0, []) . uncons) x' xs') (lift []) xs
   toList (MkD xs xs') =
-    zipWith MkD (toList xs) $
-      unfoldr (\x -> Just (dmap (fromMaybe 0 . listToMaybe) (: []) x, dmap (drop 1) (0 :) x)) $
-        dmap toList fromList xs'
+    zipWith MkD (toList xs)
+      . unfoldr (\x -> Just (dmap (fromMaybe 0 . listToMaybe) (: []) x, dmap (drop 1) (0 :) x))
+      $ dmap toList fromList xs'
 
+{-# INLINEABLE toV #-}
 toV :: (Mode m, G.Vector v a, Num a) => [D s m a] -> D s m (v a)
 toV xs =
-  MkD (G.fromList $ map (\(MkD x _) -> x) xs) $
-    foldr (\(MkD _ x') xs' -> liftD2 G.cons (G.unsafeHead &&& G.unsafeTail) x' xs') (lift G.empty) xs
+  MkD (G.fromList $ map (\(MkD x _) -> x) xs) . dmap G.fromList G.toList $
+    foldr (\(MkD _ x') -> liftD2 (:) (fromMaybe (0, []) . uncons) x') (lift []) xs
 
+{-# INLINEABLE toVN #-}
 toVN :: (Mode m, G.Vector v a, Num a) => Int -> [D s m a] -> D s m (v a)
 toVN n xs =
-  MkD (G.fromListN n $ map (\(MkD x _) -> x) xs) . snd $
-    foldl'
-      (\(i, xs') (MkD _ x') -> (i + 1, liftD2 (\x v -> G.unsafeUpd v [(i, x)]) ((`G.unsafeIndex` i) &&& id) x' xs'))
-      (0, lift $ G.replicate n 0)
-      xs
+  MkD (G.fromListN n $ map (\(MkD x _) -> x) xs) . dmap (G.fromListN n) G.toList $
+    foldr (\(MkD _ x') -> liftD2 (:) (fromMaybe (0, []) . uncons) x') (lift []) xs
 
+{-# INLINEABLE fromV #-}
 fromV :: (Mode m, G.Vector v a, Num a) => D s m (v a) -> [D s m a]
 fromV (MkD xs xs') =
   zipWith MkD (G.toList xs) $
-    map (\i -> dmap (`G.unsafeIndex` i) (\x -> G.generate n $ bool 0 x . (==) i) xs') [0 .. n - 1]
+    map (\i -> dmap (`G.unsafeIndex` i) (\x -> G.replicate i 0 G.++ x `G.cons` G.replicate (n - i - 1) 0) xs') [0 .. n - 1]
   where
     n = G.length xs
 
-instance {-# OVERLAPPING #-} (Mode m, U.Unbox a, Num a) => IsList (D s m (U.Vector a)) where
-  type Item (D s m (U.Vector a)) = D s m (Item (U.Vector a))
+instance {-# OVERLAPPING #-} (Mode m, Unboxed.Unbox a, Num a) => IsList (D s m (Unboxed.Vector a)) where
+  type Item (D s m (Unboxed.Vector a)) = D s m (Item (Unboxed.Vector a))
   fromList = toV
   fromListN = toVN
   toList = fromV
 
-instance {-# OVERLAPPING #-} (Mode m, Num a) => IsList (D s m (V.Vector a)) where
-  type Item (D s m (V.Vector a)) = D s m (Item (V.Vector a))
+instance {-# OVERLAPPING #-} (Mode m, Num a) => IsList (D s m (Vector.Vector a)) where
+  type Item (D s m (Vector.Vector a)) = D s m (Item (Vector.Vector a))
   fromList = toV
   fromListN = toVN
   toList = fromV
 
-instance {-# OVERLAPPING #-} (Mode m, S.Storable a, Num a) => IsList (D s m (S.Vector a)) where
-  type Item (D s m (S.Vector a)) = D s m (Item (S.Vector a))
+instance {-# OVERLAPPING #-} (Mode m, Storable.Storable a, Num a) => IsList (D s m (Storable.Vector a)) where
+  type Item (D s m (Storable.Vector a)) = D s m (Item (Storable.Vector a))
   fromList = toV
   fromListN = toVN
   toList = fromV
 
-instance {-# OVERLAPPING #-} (Mode m, P.Prim a, Num a) => IsList (D s m (P.Vector a)) where
-  type Item (D s m (P.Vector a)) = D s m (Item (P.Vector a))
+instance {-# OVERLAPPING #-} (Mode m, Primitive.Prim a, Num a) => IsList (D s m (Primitive.Vector a)) where
+  type Item (D s m (Primitive.Vector a)) = D s m (Item (Primitive.Vector a))
+  fromList = toV
+  fromListN = toVN
+  toList = fromV
+
+instance {-# OVERLAPPING #-} (Mode m, Num a) => IsList (D s m (Strict.Vector a)) where
+  type Item (D s m (Strict.Vector a)) = D s m (Item (Strict.Vector a))
   fromList = toV
   fromListN = toVN
   toList = fromV
