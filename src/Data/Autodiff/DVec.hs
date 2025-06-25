@@ -10,7 +10,7 @@ import Data.Autodiff.VectorSpace (InnerSpace, VectorSpace)
 import Data.Coerce (coerce)
 import Data.Kind (Type)
 import Data.STRef (modifySTRef', newSTRef, readSTRef)
-import Data.Vector.Generic (Mutable, Vector (..), length, modify, replicate, unsafeCopy, unsafeSlice, unsafeTake, (++))
+import Data.Vector.Generic (Mutable, Vector (..), length, replicate, unsafeDrop, unsafeSlice, unsafeTake, (++))
 import Data.Vector.Generic.Mutable qualified as M
 import Data.Vector.Unboxed qualified as U
 import GHC.IsList (IsList)
@@ -49,7 +49,7 @@ instance (Mode m, Vector v a, Num a) => Vector (DVec v) (D s m a) where
   basicUnsafeCopy (MkMV o v vr) (MkV (MkD x xd)) = do
     basicUnsafeCopy v x
     let n = length x
-        copyRange x' = modify $ \v' -> unsafeCopy (M.unsafeSlice o n v') (unsafeTake n x')
-        clearSub = modify $ \v' -> M.set (M.unsafeSlice o n v') 0
+        copyRange x' v' = unsafeTake o v' ++ unsafeTake n x' ++ unsafeDrop (o + n) v'
+        clearSub v' = unsafeTake o v' ++ replicate n 0 ++ unsafeDrop (o + n) v'
     modifySTRef' vr $ liftD2 copyRange (unsafeSlice o n &&& clearSub) xd
   elemseq _ (MkD x _) = elemseq (undefined :: v a) x

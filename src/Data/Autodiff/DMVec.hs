@@ -7,7 +7,18 @@ import Data.Autodiff.Internal (D (..), indexV')
 import Data.Autodiff.Mode (Mode (dmap, lift, liftD2))
 import Data.Kind (Type)
 import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef)
-import Data.Vector.Generic (Mutable, Vector, modify, replicate, sum, unsafeCopy, unsafeIndex, unsafeSlice, unsafeTake, unsafeUpd, (++))
+import Data.Vector.Generic
+  ( Mutable,
+    Vector,
+    cons,
+    replicate,
+    sum,
+    unsafeDrop,
+    unsafeIndex,
+    unsafeSlice,
+    unsafeTake,
+    (++),
+  )
 import Data.Vector.Generic.Mutable (MVector (..))
 import Prelude hiding (replicate, sum, (++))
 
@@ -31,28 +42,28 @@ instance (Mode m, Vector v a, Num a) => MVector (DMVec v) (D q m a) where
   basicUnsafeWrite (MkMV o v vr) i (MkD x xd) = do
     basicUnsafeWrite v i x
     let i' = i + o
-        setI x' v' = unsafeUpd v' [(i', x')]
+        setI x' v' = unsafeTake i' v' ++ x' `cons` unsafeDrop (i' + 1) v'
     modifySTRef' vr $ liftD2 setI ((`unsafeIndex` i') &&& setI 0) xd
   basicSet (MkMV o v vr) (MkD x xd) = do
     basicSet v x
     let n = basicLength v
-        setRange x' = modify $ \v' -> basicSet (basicUnsafeSlice o n v') x'
+        setRange x' v' = unsafeTake o v' ++ replicate n x' ++ unsafeDrop (o + n) v'
     modifySTRef' vr $ liftD2 setRange (sum . unsafeSlice o n &&& setRange 0) xd
   basicUnsafeCopy (MkMV o v vr) (MkMV i w wr) = do
     basicUnsafeCopy v w
     wd <- readSTRef wr
     let n = basicLength v
-        copyRange w' = modify $ \v' -> unsafeCopy (basicUnsafeSlice o n v') (unsafeSlice i n w')
+        copyRange w' v' = unsafeTake o v' ++ unsafeSlice i n w' ++ unsafeDrop (o + n) v'
         extractSub v' = replicate i 0 ++ unsafeSlice o n v'
-        clearSub = modify $ \v' -> basicSet (basicUnsafeSlice o n v') 0
+        clearSub v' = unsafeTake o v' ++ replicate n 0 ++ unsafeDrop (o + n) v'
     modifySTRef' vr $ liftD2 copyRange (extractSub &&& clearSub) wd
   basicUnsafeMove (MkMV o v vr) (MkMV i w wr) = do
     basicUnsafeMove v w
     wd <- readSTRef wr
     let n = basicLength v
-        copyRange w' = modify $ \v' -> unsafeCopy (basicUnsafeSlice o n v') (unsafeSlice i n w')
+        copyRange w' v' = unsafeTake o v' ++ unsafeSlice i n w' ++ unsafeDrop (o + n) v'
         extractSub v' = replicate i 0 ++ unsafeSlice o n v'
-        clearSub = modify $ \v' -> basicSet (basicUnsafeSlice o n v') 0
+        clearSub v' = unsafeTake o v' ++ replicate n 0 ++ unsafeDrop (o + n) v'
     modifySTRef' vr $ liftD2 copyRange (extractSub &&& clearSub) wd
   basicUnsafeGrow (MkMV o v vr) by = do
     w <- basicUnsafeGrow v by
