@@ -13,6 +13,9 @@ import Prelude hiding (replicate, sum)
 
 data family DMVec :: (Type -> Type) -> Type -> Type -> Type
 
+-- Invariants:
+--   If m is covariant: The vector from the derivative will be at least as long as the main vector plus the offset
+--   If m in contravariant: The vector given to the derivative will be as least as long as the main vector plus the offset
 data instance DMVec v s (D q m a) = MkMV Int (Mutable v s a) (STRef s (m (v a)))
 
 instance (Mode m, Vector v a, Num a) => MVector (DMVec v) (D q m a) where

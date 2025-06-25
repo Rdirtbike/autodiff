@@ -17,6 +17,9 @@ import Prelude hiding (drop, length, replicate, take, (++))
 
 data family DVec :: (Type -> Type) -> Type -> Type
 
+-- Invariants:
+--   If m is covariant: The vector from the derivative will be at least as long as the main vector
+--   If m in contravariant: The vector given to the derivative will be as least as long as the main vector
 newtype instance DVec v (D s m a) = MkV {getV :: D s m (v a)} deriving (Eq, Ord)
 
 deriving instance (Mode m, InnerSpace (v a)) => VectorSpace (DVec v (D s m a))
