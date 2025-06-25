@@ -1,42 +1,31 @@
 {-# LANGUAGE TypeFamilies #-}
 
-module Data.Autodiff.DMVec (DMVec (..), getOr0, prepend0s) where
+module Data.Autodiff.DMVec (DMVec (..)) where
 
 import Control.Arrow ((&&&))
-import Data.Autodiff.Internal (D (..))
+import Data.Autodiff.Internal (D (..), indexV')
 import Data.Autodiff.Mode (Mode (dmap, lift, liftD2))
 import Data.Kind (Type)
-import Data.Maybe (fromMaybe)
 import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef)
-import Data.Vector.Generic (Mutable, Vector, empty, length, replicate, snoc, sum, unsafeUpd, (!?), (++))
+import Data.Vector.Generic (Mutable, Vector, replicate, sum, unsafeIndex, unsafeTake, unsafeUpd)
 import Data.Vector.Generic.Mutable (MVector (..))
-import Prelude hiding (length, replicate, sum, (++))
+import Prelude hiding (replicate, sum)
 
 data family DMVec :: (Type -> Type) -> Type -> Type -> Type
 
 data instance DMVec v s (D q m a) = MkMV Int (Mutable v s a) (STRef s (m (v a)))
 
-getOr0 :: (Vector v a, Num a) => Int -> v a -> a
-getOr0 i = fromMaybe 0 . (!? i)
-
-prepend0s :: (Vector v a, Num a) => Int -> a -> v a
-prepend0s i = snoc $ replicate i 0
-
 instance (Mode m, Vector v a, Num a) => MVector (DMVec v) (D q m a) where
   basicLength (MkMV _ v _) = basicLength v
   basicUnsafeSlice i n (MkMV o v vr) = MkMV (o + i) (basicUnsafeSlice i n v) vr
-  basicOverlaps (MkMV _ v vr) (MkMV _ w wr) = basicOverlaps v w || vr == wr
-  basicUnsafeNew n = MkMV 0 <$> basicUnsafeNew n <*> newSTRef (lift empty)
+  basicOverlaps (MkMV _ v vr) (MkMV _ w wr) = vr == wr || basicOverlaps v w
+  basicUnsafeNew n = MkMV 0 <$> basicUnsafeNew n <*> newSTRef (lift $ replicate n 0)
   basicInitialize (MkMV _ v _) = basicInitialize v
-  basicUnsafeReplicate n (MkD x x') = MkMV 0 <$> basicUnsafeReplicate n x <*> newSTRef (dmap (replicate n) sum x')
+  basicUnsafeReplicate n (MkD x x') = MkMV 0 <$> basicUnsafeReplicate n x <*> newSTRef (dmap (replicate n) (sum . unsafeTake n) x')
   basicUnsafeRead (MkMV o v vr) i =
     let i' = i + o
-     in MkD <$> basicUnsafeRead v i <*> (dmap (getOr0 i') (prepend0s i') <$> readSTRef vr)
+     in MkD <$> basicUnsafeRead v i <*> (indexV' (basicLength v + o) i' <$> readSTRef vr)
   basicUnsafeWrite (MkMV o v vr) i (MkD x xd) = do
     basicUnsafeWrite v i x
     let i' = i + o
-        clearI y = if i' < length y then unsafeUpd y [(i + o, 0)] else y
-        updI x' v' =
-          let n = length v'
-           in if i' < n then unsafeUpd v' [(i', x')] else v' ++ replicate (i' - n) 0 `snoc` x'
-    modifySTRef' vr $ liftD2 updI (getOr0 i' &&& clearI) xd
+    modifySTRef' vr $ liftD2 (\x' v' -> unsafeUpd v' [(i', x')]) ((`unsafeIndex` i') &&& (`unsafeUpd` [(i', 0)])) xd

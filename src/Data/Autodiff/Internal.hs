@@ -4,7 +4,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
-module Data.Autodiff.Internal (D (..)) where
+module Data.Autodiff.Internal (D (..), indexV') where
 
 import Control.Arrow ((&&&))
 import Data.Autodiff.Mode (Mode (dmap, lift, liftD2))
@@ -90,11 +90,15 @@ toVN n xs =
   MkD (G.fromListN n $ map (\(MkD x _) -> x) xs) . dmap (G.fromListN n) G.toList $
     foldr (\(MkD _ x') -> liftD2 (:) (fromMaybe (0, []) . uncons) x') (lift []) xs
 
+{-# INLINEABLE indexV' #-}
+indexV' :: (Mode m, G.Vector v a, Num a) => Int -> Int -> m (v a) -> m a
+indexV' n i = dmap (`G.unsafeIndex` i) (\x -> G.replicate i 0 G.++ x `G.cons` G.replicate (n - i - 1) 0)
+
 {-# INLINEABLE fromV #-}
 fromV :: (Mode m, G.Vector v a, Num a) => D s m (v a) -> [D s m a]
 fromV (MkD xs xs') =
   zipWith MkD (G.toList xs) $
-    map (\i -> dmap (`G.unsafeIndex` i) (\x -> G.replicate i 0 G.++ x `G.cons` G.replicate (n - i - 1) 0) xs') [0 .. n - 1]
+    map (\i -> indexV' n i xs') [0 .. n - 1]
   where
     n = G.length xs
 

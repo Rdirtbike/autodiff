@@ -2,18 +2,18 @@
 
 module Data.Autodiff.DVec (DVec (..), liftV, liftS) where
 
-import Data.Autodiff.DMVec (DMVec (..), getOr0, prepend0s)
-import Data.Autodiff.Internal (D (..))
+import Data.Autodiff.DMVec (DMVec (..))
+import Data.Autodiff.Internal (D (..), indexV')
 import Data.Autodiff.Mode (Mode (dmap))
 import Data.Autodiff.VectorSpace (InnerSpace, VectorSpace)
 import Data.Coerce (coerce)
 import Data.Kind (Type)
 import Data.STRef (newSTRef, readSTRef)
-import Data.Vector.Generic (Mutable, Vector (..), drop, replicate, take, (++))
+import Data.Vector.Generic (Mutable, Vector (..), length, replicate, unsafeDrop, unsafeSlice, unsafeTake, (++))
 import Data.Vector.Generic.Mutable qualified as M (length)
 import Data.Vector.Unboxed qualified as U
 import GHC.IsList (IsList)
-import Prelude hiding (drop, replicate, take, (++))
+import Prelude hiding (drop, length, replicate, take, (++))
 
 data family DVec :: (Type -> Type) -> Type -> Type
 
@@ -33,10 +33,13 @@ type instance Mutable (DVec v) = DMVec v
 
 instance (Mode m, Vector v a, Num a) => Vector (DVec v) (D s m a) where
   basicUnsafeFreeze (MkMV o x x') =
-    let takeLen = take (M.length x)
-     in MkV <$> (MkD <$> basicUnsafeFreeze x <*> (dmap (takeLen . drop o) ((replicate o 0 ++) . takeLen) <$> readSTRef x'))
+    let takeLen = unsafeTake (M.length x)
+     in MkV <$> (MkD <$> basicUnsafeFreeze x <*> (dmap (takeLen . unsafeDrop o) ((replicate o 0 ++) . takeLen) <$> readSTRef x'))
   basicUnsafeThaw (MkV (MkD x x')) = MkMV 0 <$> basicUnsafeThaw x <*> newSTRef x'
   basicLength (MkV (MkD x _)) = basicLength x
-  basicUnsafeSlice i n (MkV (MkD x x')) = MkV $ MkD (basicUnsafeSlice i n x) (dmap (take n . drop i) (replicate i 0 ++) x')
-  basicUnsafeIndexM (MkV (MkD x x')) i = MkD <$> basicUnsafeIndexM x i <*> pure (dmap (getOr0 i) (prepend0s i) x')
+  basicUnsafeSlice i n (MkV (MkD x x')) =
+    let padding = length x - i - n
+        pad xs = replicate i 0 ++ unsafeTake n xs ++ replicate padding 0
+     in MkV $ MkD (basicUnsafeSlice i n x) (dmap (unsafeSlice i n) pad x')
+  basicUnsafeIndexM (MkV (MkD x x')) i = MkD <$> basicUnsafeIndexM x i <*> pure (indexV' (length x) i x')
   elemseq _ (MkD x _) = elemseq (undefined :: v a) x
