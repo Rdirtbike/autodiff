@@ -7,9 +7,9 @@ import Data.Autodiff.Internal (D (..), indexV')
 import Data.Autodiff.Mode (Mode (dmap, lift, liftD2))
 import Data.Kind (Type)
 import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef)
-import Data.Vector.Generic (Mutable, Vector, replicate, sum, unsafeIndex, unsafeTake, unsafeUpd)
+import Data.Vector.Generic (Mutable, Vector, modify, replicate, sum, unsafeCopy, unsafeIndex, unsafeSlice, unsafeTake, unsafeUpd, (++))
 import Data.Vector.Generic.Mutable (MVector (..))
-import Prelude hiding (replicate, sum)
+import Prelude hiding (replicate, sum, (++))
 
 data family DMVec :: (Type -> Type) -> Type -> Type -> Type
 
@@ -31,4 +31,32 @@ instance (Mode m, Vector v a, Num a) => MVector (DMVec v) (D q m a) where
   basicUnsafeWrite (MkMV o v vr) i (MkD x xd) = do
     basicUnsafeWrite v i x
     let i' = i + o
-    modifySTRef' vr $ liftD2 (\x' v' -> unsafeUpd v' [(i', x')]) ((`unsafeIndex` i') &&& (`unsafeUpd` [(i', 0)])) xd
+        setI x' v' = unsafeUpd v' [(i', x')]
+    modifySTRef' vr $ liftD2 setI ((`unsafeIndex` i') &&& setI 0) xd
+  basicSet (MkMV o v vr) (MkD x xd) = do
+    basicSet v x
+    let n = basicLength v
+        setRange x' = modify $ \v' -> basicSet (basicUnsafeSlice o n v') x'
+    modifySTRef' vr $ liftD2 setRange (sum . unsafeSlice o n &&& setRange 0) xd
+  basicUnsafeCopy (MkMV o v vr) (MkMV i w wr) = do
+    basicUnsafeCopy v w
+    wd <- readSTRef wr
+    let n = basicLength v
+        copyRange w' = modify $ \v' -> unsafeCopy (basicUnsafeSlice o n v') (unsafeSlice i n w')
+        extractSub v' = replicate i 0 ++ unsafeSlice o n v'
+        clearSub = modify $ \v' -> basicSet (basicUnsafeSlice o n v') 0
+    modifySTRef' vr $ liftD2 copyRange (extractSub &&& clearSub) wd
+  basicUnsafeMove (MkMV o v vr) (MkMV i w wr) = do
+    basicUnsafeMove v w
+    wd <- readSTRef wr
+    let n = basicLength v
+        copyRange w' = modify $ \v' -> unsafeCopy (basicUnsafeSlice o n v') (unsafeSlice i n w')
+        extractSub v' = replicate i 0 ++ unsafeSlice o n v'
+        clearSub = modify $ \v' -> basicSet (basicUnsafeSlice o n v') 0
+    modifySTRef' vr $ liftD2 copyRange (extractSub &&& clearSub) wd
+  basicUnsafeGrow (MkMV o v vr) by = do
+    w <- basicUnsafeGrow v by
+    v' <- readSTRef vr
+    let n = basicLength v
+    wr <- newSTRef $ dmap ((++ replicate by 0) . unsafeSlice o n) ((replicate o 0 ++) . unsafeTake n) v'
+    pure $ MkMV 0 w wr
