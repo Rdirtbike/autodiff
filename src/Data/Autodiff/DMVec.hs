@@ -5,6 +5,7 @@ module Data.Autodiff.DMVec (DMVec (..)) where
 import Control.Arrow ((&&&))
 import Data.Autodiff.Internal (D (..), indexV')
 import Data.Autodiff.Mode (Mode (dmap, lift, liftD2))
+import Data.Functor.Contravariant (Op)
 import Data.Kind (Type)
 import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef)
 import Data.Vector.Generic
@@ -20,6 +21,7 @@ import Data.Vector.Generic
     (++),
   )
 import Data.Vector.Generic.Mutable (MVector (..))
+import Data.Vector.Unboxed qualified as U
 import Prelude hiding (replicate, sum, (++))
 
 data family DMVec :: (Type -> Type) -> Type -> Type -> Type
@@ -29,7 +31,8 @@ data family DMVec :: (Type -> Type) -> Type -> Type -> Type
 --   If m in contravariant: The vector given to the derivative will be as least as long as the main vector plus the offset
 data instance DMVec v s (D q m a) = MkMV Int (Mutable v s a) (STRef s (m (v a)))
 
-instance (Mode m, Vector v a, Num a) => MVector (DMVec v) (D q m a) where
+instance (Mode m, Vector v a, Num a) => MVector (DMVec v) (D s m a) where
+  {-# SPECIALIZE instance MVector (DMVec U.Vector) (D s (Op (U.Vector Double)) Double) #-}
   basicLength (MkMV _ v _) = basicLength v
   basicUnsafeSlice i n (MkMV o v vr) = MkMV (o + i) (basicUnsafeSlice i n v) vr
   basicOverlaps (MkMV _ v vr) (MkMV _ w wr) = vr == wr || basicOverlaps v w

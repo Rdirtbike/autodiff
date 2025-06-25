@@ -9,6 +9,7 @@ module Data.Autodiff.Internal (D (..), indexV') where
 import Control.Arrow ((&&&))
 import Data.Autodiff.Mode (Mode (dmap, lift, liftD2))
 import Data.Autodiff.VectorSpace (InnerSpace (..), VectorSpace (..))
+import Data.Functor.Contravariant (Op)
 import Data.List (uncons, unfoldr)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Vector qualified as Vector
@@ -16,7 +17,7 @@ import Data.Vector.Generic qualified as G
 import Data.Vector.Primitive qualified as Primitive
 import Data.Vector.Storable qualified as Storable
 import Data.Vector.Strict qualified as Strict
-import Data.Vector.Unboxed qualified as Unboxed
+import Data.Vector.Unboxed qualified as U
 import GHC.IsList (IsList (..))
 
 data D s m a = MkD a (m a)
@@ -25,12 +26,14 @@ scalar :: (Mode m, Num a) => (a -> a) -> (a -> a) -> D s m a -> D s m a
 scalar f f' (MkD x x') = MkD (f x) $ dmap (* f' x) (* f' x) x'
 
 instance (Mode m, InnerSpace a) => VectorSpace (D s m a) where
+  {-# SPECIALIZE instance VectorSpace (D s (Op (U.Vector Double)) Double) #-}
   type Scalar (D s m a) = D s m (Scalar a)
   zero = MkD zero $ lift zero
   MkD x xd .+ MkD y yd = MkD (x .+ y) $ liftD2 (.+) (id &&& id) xd yd
   MkD x xd .* MkD y yd = MkD (x .* y) $ liftD2 (\x' y' -> x' .* y .+ x .* y') (inner y &&& (.*) x) xd yd
 
 instance (Mode m, Num a) => Num (D s m a) where
+  {-# SPECIALIZE instance Num (D s (Op (U.Vector Double)) Double) #-}
   MkD x xd + MkD y yd = MkD (x + y) $ liftD2 (+) (id &&& id) xd yd
   MkD x xd * MkD y yd = MkD (x * y) $ liftD2 (\x' y' -> x' * y + x * y') ((*) y &&& (*) x) xd yd
   MkD x xd - MkD y yd = MkD (x - y) $ liftD2 (-) (id &&& negate) xd yd
@@ -40,11 +43,13 @@ instance (Mode m, Num a) => Num (D s m a) where
   fromInteger x = MkD (fromInteger x) $ lift 0
 
 instance (Mode m, Fractional a) => Fractional (D s m a) where
+  {-# SPECIALIZE instance Fractional (D s (Op (U.Vector Double)) Double) #-}
   MkD x xd / MkD y yd = MkD (x / y) $ liftD2 (\x' y' -> (x' * y - x * y') / (y * y)) ((/ y) &&& (*) (-x / (y * y))) xd yd
   recip = scalar recip $ \x -> -1 / (x * x)
   fromRational x = MkD (fromRational x) $ lift 0
 
 instance (Mode m, Floating a) => Floating (D s m a) where
+  {-# SPECIALIZE instance Floating (D s (Op (U.Vector Double)) Double) #-}
   pi = MkD pi $ lift 0
   exp = scalar exp exp
   log = scalar log recip
@@ -59,10 +64,12 @@ instance (Mode m, Floating a) => Floating (D s m a) where
   acosh = scalar acosh $ \x -> 1 / sqrt (x * x - 1)
   atanh = scalar atanh $ \x -> 1 / (1 - x * x)
 
-instance (Eq b) => Eq (D m a b) where
+instance (Eq a) => Eq (D s m a) where
+  {-# SPECIALIZE instance Eq (D s (Op (U.Vector Double)) Double) #-}
   MkD x _ == MkD y _ = x == y
 
-instance (Ord b) => Ord (D m a b) where
+instance (Ord a) => Ord (D s m a) where
+  {-# SPECIALIZE instance Ord (D s (Op (U.Vector Double)) Double) #-}
   compare (MkD x _) (MkD y _) = compare x y
 
 instance (Mode m, IsList l, Num (Item l)) => IsList (D s m l) where
@@ -102,8 +109,9 @@ fromV (MkD xs xs') =
   where
     n = G.length xs
 
-instance {-# OVERLAPPING #-} (Mode m, Unboxed.Unbox a, Num a) => IsList (D s m (Unboxed.Vector a)) where
-  type Item (D s m (Unboxed.Vector a)) = D s m (Item (Unboxed.Vector a))
+instance {-# OVERLAPPING #-} (Mode m, U.Unbox a, Num a) => IsList (D s m (U.Vector a)) where
+  {-# SPECIALIZE instance IsList (D s (Op (U.Vector Double)) (U.Vector Double)) #-}
+  type Item (D s m (U.Vector a)) = D s m (Item (U.Vector a))
   fromList = toV
   fromListN = toVN
   toList = fromV

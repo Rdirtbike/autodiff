@@ -17,6 +17,7 @@ import Data.Autodiff.VectorSpace (VectorSpace (zero, (.+)))
 import Data.Functor.Contravariant (Op (Op), contramap)
 import Data.Functor.Identity (Identity (runIdentity))
 import Data.Kind (Constraint)
+import Data.Vector.Unboxed qualified as U
 
 class Mode m where
   type Start m a :: Constraint
@@ -54,6 +55,7 @@ instance Mode (ForwardMode a) where
 
 type ReverseMode = Op
 
+{-# SPECIALIZE getGradient :: Op (U.Vector Double) Double -> U.Vector Double #-}
 getGradient :: (Num b) => ReverseMode a b -> a
 getGradient (Op f) = f 1
 
@@ -61,6 +63,7 @@ directionalGrad :: b -> ReverseMode a b -> a
 directionalGrad x (Op f) = f x
 
 instance (VectorSpace a) => Mode (ReverseMode a) where
+  {-# SPECIALIZE instance Mode (Op (U.Vector Double)) #-}
   type Start (ReverseMode a) b = a ~ b
   start = Op id
   dmap _ = contramap

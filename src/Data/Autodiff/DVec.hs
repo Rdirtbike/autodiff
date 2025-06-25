@@ -8,6 +8,7 @@ import Data.Autodiff.Internal (D (..), indexV')
 import Data.Autodiff.Mode (Mode (dmap, liftD2))
 import Data.Autodiff.VectorSpace (InnerSpace, VectorSpace)
 import Data.Coerce (coerce)
+import Data.Functor.Contravariant (Op)
 import Data.Kind (Type)
 import Data.STRef (modifySTRef', newSTRef, readSTRef)
 import Data.Vector.Generic (Mutable, Vector (..), length, replicate, unsafeDrop, unsafeSlice, unsafeTake, (++))
@@ -36,6 +37,7 @@ liftS = coerce
 type instance Mutable (DVec v) = DMVec v
 
 instance (Mode m, Vector v a, Num a) => Vector (DVec v) (D s m a) where
+  {-# SPECIALIZE instance Vector (DVec U.Vector) (D s (Op (U.Vector Double)) Double) #-}
   basicUnsafeFreeze (MkMV o x x') =
     let n = M.length x
      in MkV <$> (MkD <$> basicUnsafeFreeze x <*> (dmap (unsafeSlice o n) ((replicate o 0 ++) . unsafeTake n) <$> readSTRef x'))

@@ -59,6 +59,7 @@ instance (Num a) => InnerSpace [a] where
   inner x = sum . zipWith (*) x
 
 instance (Unbox a, Num a) => VectorSpace (Vector a) where
+  {-# SPECIALIZE instance VectorSpace (Vector Double) #-}
   type Scalar (Vector a) = a
   zero = empty
   xs .+ ys =
@@ -71,4 +72,5 @@ instance (Unbox a, Num a) => VectorSpace (Vector a) where
   (.*) = U.map . (*)
 
 instance (Unbox a, Num a) => InnerSpace (Vector a) where
+  {-# SPECIALIZE instance InnerSpace (Vector Double) #-}
   inner x = U.sum . U.zipWith (*) x
