@@ -83,9 +83,12 @@ library
     -- Base language which the package is written in.
     default-language: GHC2021
 
+    default-extensions: LexicalNegation
+
 executable test
     import: warnings
     main-is: Test.hs
     build-depends: base, autodiff, vector
     default-language: GHC2021
+    default-extensions: LexicalNegation
     ghc-options: -ddump-simpl -ddump-to-file -ddump-simpl-stats

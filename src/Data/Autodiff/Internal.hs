@@ -1,8 +1,5 @@
-{-# HLINT ignore "Use drop1" #-}
-{-# HLINT ignore "Parenthesize unary negation" #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 module Data.Autodiff.Internal (D (..), indexV') where
 
@@ -44,7 +41,7 @@ instance (Mode m, Num a) => Num (D s m a) where
 
 instance (Mode m, Fractional a) => Fractional (D s m a) where
   {-# SPECIALIZE instance Fractional (D s (Op (U.Vector Double)) Double) #-}
-  MkD x xd / MkD y yd = MkD (x / y) $ liftD2 (\x' y' -> (x' * y - x * y') / (y * y)) ((/ y) &&& (*) (-x / (y * y))) xd yd
+  MkD x xd / MkD y yd = MkD (x / y) $ liftD2 (\x' y' -> (x' * y - x * y') / (y * y)) ((/ y) &&& (*) -(x / (y * y))) xd yd
   recip = scalar recip $ \x -> -1 / (x * x)
   fromRational x = MkD (fromRational x) $ lift 0
 
@@ -75,26 +72,26 @@ instance (Ord a) => Ord (D s m a) where
 instance (Mode m, IsList l, Num (Item l)) => IsList (D s m l) where
   type Item (D s m l) = D s m (Item l)
   fromList xs =
-    MkD (fromList $ map (\(MkD x _) -> x) xs) . dmap fromList toList $
+    MkD (fromList $ fmap (\(MkD x _) -> x) xs) . dmap fromList toList $
       foldr (\(MkD _ x') xs' -> liftD2 (:) (fromMaybe (0, []) . uncons) x' xs') (lift []) xs
   fromListN n xs =
-    MkD (fromListN n $ map (\(MkD x _) -> x) xs) . dmap (fromListN n) toList $
+    MkD (fromListN n $ fmap (\(MkD x _) -> x) xs) . dmap (fromListN n) toList $
       foldr (\(MkD _ x') xs' -> liftD2 (:) (fromMaybe (0, []) . uncons) x' xs') (lift []) xs
   toList (MkD xs xs') =
     zipWith MkD (toList xs)
-      . unfoldr (\x -> Just (dmap (fromMaybe 0 . listToMaybe) (: []) x, dmap (drop 1) (0 :) x))
+      . unfoldr (\x -> Just (dmap (sum . listToMaybe) (: []) x, dmap (drop 1) (0 :) x))
       $ dmap toList fromList xs'
 
 {-# INLINEABLE toV #-}
 toV :: (Mode m, G.Vector v a, Num a) => [D s m a] -> D s m (v a)
 toV xs =
-  MkD (G.fromList $ map (\(MkD x _) -> x) xs) . dmap G.fromList G.toList $
+  MkD (G.fromList $ fmap (\(MkD x _) -> x) xs) . dmap G.fromList G.toList $
     foldr (\(MkD _ x') -> liftD2 (:) (fromMaybe (0, []) . uncons) x') (lift []) xs
 
 {-# INLINEABLE toVN #-}
 toVN :: (Mode m, G.Vector v a, Num a) => Int -> [D s m a] -> D s m (v a)
 toVN n xs =
-  MkD (G.fromListN n $ map (\(MkD x _) -> x) xs) . dmap (G.fromListN n) G.toList $
+  MkD (G.fromListN n $ fmap (\(MkD x _) -> x) xs) . dmap (G.fromListN n) G.toList $
     foldr (\(MkD _ x') -> liftD2 (:) (fromMaybe (0, []) . uncons) x') (lift []) xs
 
 {-# INLINEABLE indexV' #-}
@@ -105,9 +102,9 @@ indexV' n i = dmap (`G.unsafeIndex` i) (\x -> G.replicate i 0 G.++ x `G.cons` G.
 fromV :: (Mode m, G.Vector v a, Num a) => D s m (v a) -> [D s m a]
 fromV (MkD xs xs') =
   zipWith MkD (G.toList xs) $
-    map (\i -> indexV' n i xs') [0 .. n - 1]
-  where
-    n = G.length xs
+    fmap (\i -> indexV' n i xs') [0 .. n - 1]
+ where
+  n = G.length xs
 
 instance {-# OVERLAPPING #-} (Mode m, U.Unbox a, Num a) => IsList (D s m (U.Vector a)) where
   {-# SPECIALIZE instance IsList (D s (Op (U.Vector Double)) (U.Vector Double)) #-}
