@@ -64,7 +64,6 @@ library
         Data.Autodiff.Mode,
         Data.Autodiff.VectorSpace,
         Data.Autodiff.DVec,
-        Data.Autodiff.FixedVec,
 
     -- Modules included in this library but not exported.
     other-modules:
