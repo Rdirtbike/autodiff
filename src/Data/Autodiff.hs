@@ -20,5 +20,5 @@ gradient f x = case f (MkV (MkD x start)) of
 asConst :: (Real a, Fractional b) => D s m a -> b
 asConst (MkD x _) = realToFrac x
 
-asConstD :: (VectorSpace (m a)) => D s m a -> D s' m a
+asConstD :: VectorSpace (m a) => D s m a -> D s' m a
 asConstD (MkD x _) = MkD x zero

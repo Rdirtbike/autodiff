@@ -26,7 +26,7 @@ infixl 6 .+
 
 infixl 7 .*
 
-class (VectorSpace v) => InnerSpace v where
+class VectorSpace v => InnerSpace v where
   inner :: v -> v -> Scalar v
   default inner :: (Num v, Scalar v ~ v) => v -> v -> Scalar v
   inner x y = x * y
@@ -47,7 +47,7 @@ instance VectorSpace Integer
 
 instance InnerSpace Integer
 
-instance (Num a) => VectorSpace [a] where
+instance Num a => VectorSpace [a] where
   type Scalar [a] = a
   zero = []
   (x : xs) .+ (y : ys) = x + y : xs .+ ys
@@ -55,7 +55,7 @@ instance (Num a) => VectorSpace [a] where
   xs .+ [] = xs
   (.*) = map . (*)
 
-instance (Num a) => InnerSpace [a] where
+instance Num a => InnerSpace [a] where
   inner x = sum . zipWith (*) x
 
 instance (Unbox a, Num a) => VectorSpace (Vector a) where
@@ -68,7 +68,7 @@ instance (Unbox a, Num a) => VectorSpace (Vector a) where
         n = max lx ly
         xs' = U.replicate (n - lx) 0
         ys' = U.replicate (n - ly) 0
-     in U.zipWith (+) (xs <> xs') (ys <> ys')
+    in U.zipWith (+) (xs <> xs') (ys <> ys')
   (.*) = U.map . (*)
 
 instance (Unbox a, Num a) => InnerSpace (Vector a) where

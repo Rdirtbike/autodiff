@@ -8,18 +8,18 @@ import Data.Autodiff.Mode (Mode (dmap, lift, liftD2))
 import Data.Functor.Contravariant (Op)
 import Data.Kind (Type)
 import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef)
-import Data.Vector.Generic
-  ( Mutable,
-    Vector,
-    cons,
-    replicate,
-    sum,
-    unsafeDrop,
-    unsafeIndex,
-    unsafeSlice,
-    unsafeTake,
-    (++),
-  )
+import Data.Vector.Generic (
+  Mutable,
+  Vector,
+  cons,
+  replicate,
+  sum,
+  unsafeDrop,
+  unsafeIndex,
+  unsafeSlice,
+  unsafeTake,
+  (++),
+ )
 import Data.Vector.Generic.Mutable (MVector (..))
 import Data.Vector.Unboxed qualified as U
 import Prelude hiding (replicate, sum, (++))
@@ -41,7 +41,7 @@ instance (Mode m, Vector v a, Num a) => MVector (DMVec v) (D s m a) where
   basicUnsafeReplicate n (MkD x x') = MkMV 0 <$> basicUnsafeReplicate n x <*> newSTRef (dmap (replicate n) (sum . unsafeTake n) x')
   basicUnsafeRead (MkMV o v vr) i =
     let i' = i + o
-     in MkD <$> basicUnsafeRead v i <*> (indexV' (basicLength v + o) i' <$> readSTRef vr)
+    in MkD <$> basicUnsafeRead v i <*> (indexV' (basicLength v + o) i' <$> readSTRef vr)
   basicUnsafeWrite (MkMV o v vr) i (MkD x xd) = do
     basicUnsafeWrite v i x
     let i' = i + o

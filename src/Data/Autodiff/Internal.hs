@@ -61,11 +61,11 @@ instance (Mode m, Floating a) => Floating (D s m a) where
   acosh = scalar acosh $ \x -> 1 / sqrt (x * x - 1)
   atanh = scalar atanh $ \x -> 1 / (1 - x * x)
 
-instance (Eq a) => Eq (D s m a) where
+instance Eq a => Eq (D s m a) where
   {-# SPECIALIZE instance Eq (D s (Op (U.Vector Double)) Double) #-}
   MkD x _ == MkD y _ = x == y
 
-instance (Ord a) => Ord (D s m a) where
+instance Ord a => Ord (D s m a) where
   {-# SPECIALIZE instance Ord (D s (Op (U.Vector Double)) Double) #-}
   compare (MkD x _) (MkD y _) = compare x y
 

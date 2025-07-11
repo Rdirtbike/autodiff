@@ -40,13 +40,13 @@ instance (Mode m, Vector v a, Num a) => Vector (DVec v) (D s m a) where
   {-# SPECIALIZE instance Vector (DVec U.Vector) (D s (Op (U.Vector Double)) Double) #-}
   basicUnsafeFreeze (MkMV o x x') =
     let n = M.length x
-     in MkV <$> (MkD <$> basicUnsafeFreeze x <*> (dmap (unsafeSlice o n) ((replicate o 0 ++) . unsafeTake n) <$> readSTRef x'))
+    in MkV <$> (MkD <$> basicUnsafeFreeze x <*> (dmap (unsafeSlice o n) ((replicate o 0 ++) . unsafeTake n) <$> readSTRef x'))
   basicUnsafeThaw (MkV (MkD x x')) = MkMV 0 <$> basicUnsafeThaw x <*> newSTRef x'
   basicLength (MkV (MkD x _)) = basicLength x
   basicUnsafeSlice i n (MkV (MkD x x')) =
     let padding = length x - i - n
         pad xs = replicate i 0 ++ unsafeTake n xs ++ replicate padding 0
-     in MkV $ MkD (basicUnsafeSlice i n x) (dmap (unsafeSlice i n) pad x')
+    in MkV $ MkD (basicUnsafeSlice i n x) (dmap (unsafeSlice i n) pad x')
   basicUnsafeIndexM (MkV (MkD x x')) i = MkD <$> basicUnsafeIndexM x i <*> pure (indexV' (length x) i x')
   basicUnsafeCopy (MkMV o v vr) (MkV (MkD x xd)) = do
     basicUnsafeCopy v x
