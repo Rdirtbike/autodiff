@@ -9,5 +9,4 @@ main :: IO ()
 main = do
   [ns] <- getArgs
   n <- readIO @Int ns
-  y <- autodiff (^ n) (2 :: Int)
-  void $ evaluate y
+  void $ evaluate $ autodiff (^ n) (2 :: Int)

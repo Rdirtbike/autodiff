@@ -1,5 +1,9 @@
+{-# LANGUAGE LexicalNegation #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE Strict #-}
 {-# LANGUAGE UnboxedTuples #-}
+
+{- HLINT ignore "Parenthesize unary negation" -}
 
 module Data.Autodiff (D, autodiff) where
 
@@ -9,20 +13,23 @@ import GHC.IO
 
 data Tag a = MkT {-# UNPACK #-} !(PromptTag# a)
 
+{-# INLINE newTag #-}
 newTag :: IO (Tag a)
 newTag = IO $ \s -> case newPromptTag# s of
   (# s', t #) -> (# s', MkT t #)
 
+{-# INLINE reset #-}
 reset :: Tag a -> IO a -> IO a
 reset (MkT t) (IO f) = IO $ \s -> prompt# t f s
 
+{-# INLINE shift0 #-}
 shift0 :: Tag a -> ((b -> IO a) -> IO a) -> IO b
 shift0 (MkT t) f = IO $ \s -> control0# t (\g -> unIO $ f $ \x -> IO $ prompt# t $ g (# ,x #)) s
 
 data D a = MkD a (Tag () -> IO (IORef a))
 
-autodiff :: (Num a, Num b) => (D a -> D b) -> a -> IO (b, a)
-autodiff f x = do
+autodiff :: (Num a, Num b) => (D a -> D b) -> a -> (b, a)
+autodiff f x = unsafeDupablePerformIO $ do
   r <- newIORef 0
   t <- newTag
   let MkD y yd = f $ MkD x $ \_ -> pure r
@@ -56,7 +63,12 @@ instance Num a => Num (D a) where
   (+) = lift2 (+) (\_ _ -> 1) (\_ _ -> 1)
   (*) = lift2 (*) (\_ y -> y) const
   (-) = lift2 (-) (\_ _ -> 1) (\_ _ -> -1)
-  negate = lift negate (const $ -1)
+  negate = lift negate (const -1)
   abs = lift abs signum
   signum = lift abs (const 0)
   fromInteger n = MkD (fromInteger n) $ \_ -> newIORef 0
+
+instance Fractional a => Fractional (D a) where
+  (/) = lift2 (/) (\_ y -> 1 / y) (\x y -> -x / (y * y))
+  recip = lift recip $ \x -> -1 / (x * x)
+  fromRational x = MkD (fromRational x) $ \_ -> newIORef 0
