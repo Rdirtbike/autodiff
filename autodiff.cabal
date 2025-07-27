@@ -61,15 +61,9 @@ library
     -- Modules exported by the library.
     exposed-modules:
         Data.Autodiff,
-        Data.Autodiff.Mode,
-        Data.Autodiff.VectorSpace,
-        Data.Autodiff.DVec,
-        Data.Autodiff.Massiv,
 
     -- Modules included in this library but not exported.
     other-modules:
-        Data.Autodiff.Internal,
-        Data.Autodiff.DMVec,
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
