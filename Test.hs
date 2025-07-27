@@ -1,15 +1,13 @@
 module Main (main) where
 
+import Control.Exception
 import Data.Autodiff
-import Data.Vector.Generic qualified as V
-import Data.Vector.Unboxed qualified as U
+import Data.Functor
 import System.Environment
 
 main :: IO ()
 main = do
-  args <- getArgs
-  case args of
-    [] -> putStrLn "Need arguemnt"
-    x : _ -> do
-      n <- readIO @Int x
-      print $ gradient V.product $ U.enumFromN (1 :: Double) n
+  [ns] <- getArgs
+  n <- readIO @Int ns
+  y <- autodiff (^ n) (2 :: Int)
+  void $ evaluate y
