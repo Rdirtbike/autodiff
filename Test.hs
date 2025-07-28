@@ -1,12 +1,11 @@
 module Main (main) where
 
-import Control.Exception
-import Data.Autodiff
-import Data.Functor
-import System.Environment
+import Data.Autodiff (autodiff)
+import System.Environment (getArgs)
 
 main :: IO ()
 main = do
   [ns] <- getArgs
   n <- readIO @Int ns
-  void $ evaluate $ autodiff (^ n) (2 :: Int)
+  let !(!_, !_) = autodiff (^ n) (2 :: Integer)
+  pure ()

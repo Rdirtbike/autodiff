@@ -1,7 +1,3 @@
-{-# LANGUAGE LexicalNegation #-}
-
-{- HLINT ignore "Parenthesize unary negation" -}
-
 module Data.Autodiff (D, autodiff) where
 
 import Control.Monad.ST (ST, runST)
