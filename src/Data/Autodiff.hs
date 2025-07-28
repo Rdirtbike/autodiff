@@ -7,6 +7,7 @@ import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef, writeSTRef)
 
 data D s a = MkD a (ContT () (ST s) (STRef s a))
 
+{-# INLINEABLE autodiff #-}
 autodiff :: (Num a, Num b) => (forall s. D s a -> D s b) -> a -> (b, a)
 autodiff f x = runST $ do
   r <- newSTRef 0
@@ -70,3 +71,9 @@ instance Floating a => Floating (D s a) where
   asinh = lift1 asinh $ \x y' -> (+ y' / sqrt (x * x + 1))
   acosh = lift1 acosh $ \x y' -> (+ y' / sqrt (x * x - 1))
   atanh = lift1 atanh $ \x y' -> (+ y' / (1 - x * x))
+
+instance Eq a => Eq (D s a) where
+  MkD x _ == MkD y _ = x == y
+
+instance Ord a => Ord (D s a) where
+  compare (MkD x _) (MkD y _) = compare x y
