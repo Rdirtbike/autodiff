@@ -1,59 +1,84 @@
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
+
 module Data.Autodiff (D, autodiff) where
 
-import Control.Monad.ST (ST, runST)
+import Control.Monad.ST (RealWorld, ST)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Cont (ContT (..))
-import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef, writeSTRef)
+import Control.Monad.Trans.Reader (ReaderT (..))
+import Data.Autodiff.MNum (MFloating, MFractional, MNum)
+import Data.Autodiff.MNum qualified
+import Data.Primitive.MutVar (MutVar, modifyMutVar', newMutVar, readMutVar, writeMutVar)
+import GHC.Exts (PromptTag#, control0#, newPromptTag#, prompt#)
+import GHC.IO (IO (IO), unIO, unsafeIOToST)
 
-data D s a = MkD a (ContT () (ST s) (STRef s a))
+data Tag = MkT {-# UNPACK #-} !(PromptTag# ())
+
+{-# INLINE newTag #-}
+newTag :: IO Tag
+newTag = IO $ \s -> case newPromptTag# s of
+  (# s', t #) -> (# s', MkT t #)
+
+{-# INLINE reset #-}
+reset :: Tag -> IO () -> IO ()
+reset (MkT t) (IO f) = IO $ prompt# t f
+
+{-# INLINE shift0 #-}
+shift0 :: ((a -> IO ()) -> IO ()) -> ReaderT Tag IO a
+shift0 f = ReaderT $ \(MkT t) -> IO $ control0# t $ \g -> unIO $ f $ \x -> IO $ prompt# t $ g (# ,x #)
+
+newtype M s a = MkM (ReaderT Tag IO a) deriving (Functor, Applicative, Monad)
+
+data D s a = MkD !a {-# UNPACK #-} !(MutVar RealWorld a)
 
 {-# INLINEABLE autodiff #-}
-autodiff :: (Num a, Num b) => (forall s. D s a -> D s b) -> a -> (b, a)
-autodiff f x = runST $ do
-  r <- newSTRef 0
-  let MkD y yd = f $ MkD x $ pure r
-  runContT yd (`writeSTRef` 1)
-  y' <- readSTRef r
+autodiff :: (Num a, Num b) => (D s a -> M s (D s b)) -> a -> ST s (b, a)
+autodiff f x = unsafeIOToST $ do
+  r <- newMutVar 0
+  r' <- newMutVar 0
+  t <- newTag
+  let MkM yd = f $ MkD x r'
+  reset t $ do
+    MkD y y' <- runReaderT yd t
+    writeMutVar y' 1
+    writeMutVar r y
+  y <- readMutVar r
+  y' <- readMutVar r'
   pure (y, y')
 
 {-# INLINE lift1 #-}
-lift1 :: Num a => (a -> a) -> (a -> a -> a -> a) -> D s a -> D s a
-lift1 f f' (MkD x xd) = MkD (f x) $ do
-  !x' <- xd
-  ContT $ \k -> do
-    r <- newSTRef 0
-    k r
-    y' <- readSTRef r
-    modifySTRef' x' $ f' x y'
+lift1 :: Num a => (a -> a) -> (a -> a -> a -> a) -> D s a -> M s (D s a)
+lift1 f f' (MkD x x') = MkM $ shift0 $ \k -> do
+  r <- newMutVar 0
+  k $ MkD (f x) r
+  y' <- readMutVar r
+  modifyMutVar' x' $ f' x y'
 
 {-# INLINE lift2 #-}
-lift2 :: Num a => (a -> a -> a) -> (a -> a -> a -> a -> a) -> (a -> a -> a -> a -> a) -> D s a -> D s a -> D s a
-lift2 f f1' f2' (MkD x xd) (MkD y yd) = MkD (f x y) $ do
-  !x' <- xd
-  !y' <- yd
-  ContT $ \k -> do
-    r <- newSTRef 0
-    k r
-    z' <- readSTRef r
-    modifySTRef' x' (f1' x y z')
-    modifySTRef' y' (f2' x y z')
+lift2 :: Num a => (a -> a -> a) -> (a -> a -> a -> a -> a) -> (a -> a -> a -> a -> a) -> D s a -> D s a -> M s (D s a)
+lift2 f f1' f2' (MkD x x') (MkD y y') = MkM $ shift0 $ \k -> do
+  r <- newMutVar 0
+  k $ MkD (f x y) r
+  z' <- readMutVar r
+  modifyMutVar' x' (f1' x y z')
+  modifyMutVar' y' (f2' x y z')
 
-instance Num a => Num (D s a) where
+instance Num a => MNum (M s) (D s a) where
   (+) = lift2 (+) (\_ _ z' -> (+ z')) (\_ _ z' -> (+ z'))
   (*) = lift2 (*) (\_ y z' -> (+ z' * y)) (\x _ z' -> (+ z' * x))
   (-) = lift2 (-) (\_ _ z' -> (+ z')) (\_ _ z' -> (- z'))
   negate = lift1 negate $ \_ y' -> (- y')
   abs = lift1 abs $ \x y' -> (+ y' * signum x)
-  signum (MkD x _) = MkD (signum x) $ lift $ newSTRef 0
-  fromInteger n = MkD (fromInteger n) $ lift $ newSTRef 0
+  signum (MkD x _) = MkM $ MkD (signum x) <$> lift (newMutVar 0)
+  fromInteger n = MkM $ MkD (fromInteger n) <$> lift (newMutVar 0)
 
-instance Fractional a => Fractional (D s a) where
+instance Fractional a => MFractional (M s) (D s a) where
   (/) = lift2 (/) (\_ y z' -> (+ z' / y)) (\x y z' -> (- z' * x / (y * y)))
   recip = lift1 recip $ \x y' -> (- y' / (x * x))
-  fromRational x = MkD (fromRational x) $ lift $ newSTRef 0
+  fromRational x = MkM $ MkD (fromRational x) <$> lift (newMutVar 0)
 
-instance Floating a => Floating (D s a) where
-  pi = MkD pi $ lift $ newSTRef 0
+instance Floating a => MFloating (M s) (D s a) where
+  pi = MkM $ MkD pi <$> lift (newMutVar 0)
   exp = lift1 exp $ \x y' -> (+ y' * exp x)
   log = lift1 log $ \x y' -> (+ y' / x)
   sqrt = lift1 sqrt $ \x y' -> (- y' / sqrt x)

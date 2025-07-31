@@ -61,6 +61,7 @@ library
     -- Modules exported by the library.
     exposed-modules:
         Data.Autodiff,
+        Data.Autodiff.MNum,
 
     -- Modules included in this library but not exported.
     other-modules:
@@ -69,7 +70,7 @@ library
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
-    build-depends:    base ^>=4.19.2.0, vector, massiv, transformers
+    build-depends:    base ^>=4.19.2.0, vector, transformers, primitive
 
     -- Directories containing source files.
     hs-source-dirs:   src
