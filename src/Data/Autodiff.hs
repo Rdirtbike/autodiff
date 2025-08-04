@@ -7,20 +7,29 @@ import Data.Autodiff.MNum (MFloating, MFractional, MNum)
 import Data.Autodiff.MNum qualified
 import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef, writeSTRef)
 
-newtype M s a = MkM (ContT () (ST s) a) deriving (Functor, Applicative, Monad)
+newtype M s a = MkM (forall r. ContT r (ST s) a) deriving Functor
+
+instance Applicative (M s) where
+  pure x = MkM $ pure x
+  liftA2 f (MkM x) (MkM y) = MkM $ liftA2 f x y
+  MkM f <*> MkM x = MkM $ f <*> x
+  MkM x *> MkM y = MkM $ x *> y
+  MkM x <* MkM y = MkM $ x <* y
+
+instance Monad (M s) where
+  MkM m >>= k =
+    MkM $
+      m >>= \x -> case k x of
+        MkM m' -> m'
 
 data D s a = MkD !a {-# UNPACK #-} !(STRef s a)
 
 {-# INLINEABLE autodiff #-}
 autodiff :: (Num a, Num b) => (D s a -> M s (D s b)) -> a -> ST s (b, a)
 autodiff f x = do
-  r <- newSTRef 0
   r' <- newSTRef 0
   let MkM yd = f $ MkD x r'
-  runContT yd $ \(MkD y y') -> do
-    writeSTRef y' 1
-    writeSTRef r y
-  y <- readSTRef r
+  y <- runContT yd $ \(MkD y y') -> y <$ writeSTRef y' 1
   y' <- readSTRef r'
   pure (y, y')
 
@@ -28,18 +37,20 @@ autodiff f x = do
 lift1 :: Num a => (a -> a) -> (a -> a -> a -> a) -> D s a -> M s (D s a)
 lift1 f f' (MkD x x') = MkM $ ContT $ \k -> do
   r <- newSTRef 0
-  k $ MkD (f x) r
+  y <- k $ MkD (f x) r
   y' <- readSTRef r
   modifySTRef' x' $ f' x y'
+  pure y
 
 {-# INLINE lift2 #-}
 lift2 :: Num a => (a -> a -> a) -> (a -> a -> a -> a -> a) -> (a -> a -> a -> a -> a) -> D s a -> D s a -> M s (D s a)
 lift2 f f1' f2' (MkD x x') (MkD y y') = MkM $ ContT $ \k -> do
   r <- newSTRef 0
-  k $ MkD (f x y) r
+  z <- k $ MkD (f x y) r
   z' <- readSTRef r
   modifySTRef' x' (f1' x y z')
   modifySTRef' y' (f2' x y z')
+  pure z
 
 instance Num a => MNum (M s) (D s a) where
   (+) = lift2 (+) (\_ _ z' -> (+ z')) (\_ _ z' -> (+ z'))
