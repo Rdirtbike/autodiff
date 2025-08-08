@@ -2,13 +2,25 @@ module Main (main) where
 
 import Control.Monad.ST (stToIO)
 import Data.Autodiff (autodiff)
-import Data.Autodiff.MNum ((^))
+import Data.Autodiff.MNum (MNum, fromInteger, (+), (-))
 import System.Environment (getArgs)
-import Prelude hiding ((^))
+import Prelude hiding (fromInteger, (+), (-))
+
+fib :: (Monad m, MNum m a, Ord a) => a -> m a
+fib n0 = do
+  one <- fromInteger 1
+  if n0 <= one
+    then pure n0
+    else do
+      n1 <- n0 - one
+      n2 <- n1 - one
+      x <- fib n1
+      y <- fib n2
+      x + y
 
 main :: IO ()
 main = do
   [ns] <- getArgs
-  n <- readIO ns
-  (!_, !_) <- stToIO $ autodiff (^ n) (2 :: Integer)
-  pure ()
+  n <- readIO @Int ns
+  x <- stToIO $ autodiff fib n
+  print x
