@@ -3,67 +3,88 @@ module Data.Autodiff (D, autodiff) where
 import Control.Monad.ST (ST)
 import Data.Autodiff.MNum (MFloating, MFractional, MNum)
 import Data.Autodiff.MNum qualified
-import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef, writeSTRef)
+import Data.Primitive.ByteArray (MutableByteArray, newByteArray, readByteArray, writeByteArray)
+import Data.Primitive.Types (Prim)
+import Data.STRef (STRef, newSTRef, readSTRef, writeSTRef)
 
-newtype M s a = MkM {runM :: forall r. ((a -> ST s r) -> ST s r)} deriving Functor
+newtype M s a = MkM
+  { runM ::
+      forall r.
+      STRef s Int ->
+      (a -> ST s (r, MutableByteArray s)) ->
+      ST s (r, MutableByteArray s)
+  }
+  deriving Functor
 
 instance Applicative (M s) where
-  pure x = MkM ($ x)
-  MkM f <*> MkM x = MkM $ \k -> f $ \g -> x (k . g)
+  pure x = MkM $ const ($ x)
+  MkM f <*> MkM x = MkM $ \n k -> f n $ \g -> x n (k . g)
   x *> y = x >>= const y
 
 instance Monad (M s) where
-  MkM m >>= f = MkM $ \k -> m $ \x -> runM (f x) k
+  MkM m >>= f = MkM $ \n k -> m n $ \x -> runM (f x) n k
 
-lift :: ST s a -> M s a
-lift m = MkM (m >>=)
-
-data D s a = MkD !a {-# UNPACK #-} !(STRef s a)
+data D s a = MkD a Int
 
 {-# INLINEABLE autodiff #-}
-autodiff :: (Num a, Num b) => (D s a -> M s (D s b)) -> a -> ST s (b, a)
+autodiff :: forall a b s. (Num a, Prim a, Num b, Prim b) => (D s a -> M s (D s b)) -> a -> ST s (b, a)
 autodiff f x = do
-  r <- newSTRef 0
-  y <- runM (f $ MkD x r) $
-    \(MkD y y') -> y <$ writeSTRef y' 1
-  y' <- readSTRef r
+  nr <- newSTRef 1
+  (y, a) <- runM (f $ MkD x 0) nr $ \(MkD y i) -> do
+    n <- readSTRef nr
+    a <- newByteArray n
+    writeByteArray @b a i 1
+    pure (y, a)
+  y' <- readByteArray a 0
   pure (y, y')
 
+{-# INLINE lift #-}
+lift :: Num a => a -> M s (D s a)
+lift x = MkM $ \nr k -> do
+  i <- readSTRef nr
+  writeSTRef nr $ i + 1
+  k $ MkD x i
+
 {-# INLINE lift1 #-}
-lift1 :: Num a => (a -> a) -> (a -> a -> a -> a) -> D s a -> M s (D s a)
-lift1 f f' (MkD x x') = MkM $ \k -> do
-  r <- newSTRef 0
-  y <- k $ MkD (f x) r
-  y' <- readSTRef r
-  modifySTRef' x' $ f' x y'
-  pure y
+lift1 :: (Num a, Prim a) => (a -> a) -> (a -> a -> a -> a) -> D s a -> M s (D s a)
+lift1 f f' (MkD x ix) = MkM $ \nr k -> do
+  iy <- readSTRef nr
+  writeSTRef nr $ iy + 1
+  (y, a) <- k $ MkD (f x) iy
+  y' <- readByteArray a iy
+  x' <- readByteArray a ix
+  writeByteArray a ix $ f' x y' x'
+  pure (y, a)
 
 {-# INLINE lift2 #-}
-lift2 :: Num a => (a -> a -> a) -> (a -> a -> a -> a -> a) -> (a -> a -> a -> a -> a) -> D s a -> D s a -> M s (D s a)
-lift2 f f1' f2' (MkD x x') (MkD y y') = MkM $ \k -> do
-  r <- newSTRef 0
-  z <- k $ MkD (f x y) r
-  z' <- readSTRef r
-  modifySTRef' x' $ f1' x y z'
-  modifySTRef' y' $ f2' x y z'
-  pure z
+lift2 :: (Num a, Prim a) => (a -> a -> a) -> (a -> a -> a -> a -> a) -> (a -> a -> a -> a -> a) -> D s a -> D s a -> M s (D s a)
+lift2 f f1' f2' (MkD x ix) (MkD y iy) = MkM $ \nr k -> do
+  iz <- readSTRef nr
+  writeSTRef nr $ iz + 1
+  (z, a) <- k $ MkD (f x y) iz
+  z' <- readByteArray a iz
+  x' <- readByteArray a ix
+  writeByteArray a ix $ f1' x y z' x'
+  y' <- readByteArray a iy
+  writeByteArray a iy $ f2' x y z' y'
+  pure (z, a)
 
-instance Num a => MNum (M s) (D s a) where
+instance (Num a, Prim a) => MNum (M s) (D s a) where
   (+) = lift2 (+) (\_ _ z' -> (+ z')) (\_ _ z' -> (+ z'))
   (*) = lift2 (*) (\_ y z' -> (+ z' * y)) (\x _ z' -> (+ z' * x))
   (-) = lift2 (-) (\_ _ z' -> (+ z')) (\_ _ z' -> (- z'))
   negate = lift1 negate $ \_ y' -> (- y')
   abs = lift1 abs $ \x y' -> (+ y' * signum x)
-  signum (MkD x _) = lift $ MkD (signum x) <$> newSTRef 0
-  fromInteger n = lift $ MkD (fromInteger n) <$> newSTRef 0
+  signum (MkD x _) = lift $ signum x
+  fromInteger n = lift $ fromInteger n
 
-instance Fractional a => MFractional (M s) (D s a) where
+instance (Fractional a, Prim a) => MFractional (M s) (D s a) where
   (/) = lift2 (/) (\_ y z' -> (+ z' / y)) (\x y z' -> (- z' * x / (y * y)))
   recip = lift1 recip $ \x y' -> (- y' / (x * x))
-  fromRational x = lift $ MkD (fromRational x) <$> newSTRef 0
+  fromRational x = lift $ fromRational x
 
-instance Floating a => MFloating (M s) (D s a) where
-  pi = lift $ MkD pi <$> newSTRef 0
+instance (Floating a, Prim a) => MFloating (M s) (D s a) where
+  pi = lift pi
   exp = lift1 exp $ \x y' -> (+ y' * exp x)
   log = lift1 log $ \x y' -> (+ y' / x)
   sqrt = lift1 sqrt $ \x y' -> (- y' / sqrt x)
