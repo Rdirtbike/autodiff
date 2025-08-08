@@ -1,19 +1,16 @@
+{-# LANGUAGE Strict #-}
+
 module Data.Autodiff (D, autodiff) where
 
 import Control.Monad.ST (ST)
 import Data.Autodiff.MNum (MFloating, MFractional, MNum)
 import Data.Autodiff.MNum qualified
-import Data.Primitive.ByteArray (MutableByteArray, newByteArray, readByteArray, writeByteArray)
+import Data.Primitive.ByteArray (MutableByteArray, fillByteArray, newByteArray, readByteArray, writeByteArray)
 import Data.Primitive.Types (Prim)
 import Data.STRef (STRef, newSTRef, readSTRef, writeSTRef)
 
 newtype M s a = MkM
-  { runM ::
-      forall r.
-      STRef s Int ->
-      (a -> ST s (r, MutableByteArray s)) ->
-      ST s (r, MutableByteArray s)
-  }
+  {runM :: forall r. STRef s Int -> (a -> ST s (r, MutableByteArray s)) -> ST s (r, MutableByteArray s)}
   deriving Functor
 
 instance Applicative (M s) where
@@ -27,12 +24,13 @@ instance Monad (M s) where
 data D s a = MkD a Int
 
 {-# INLINEABLE autodiff #-}
-autodiff :: forall a b s. (Num a, Prim a, Num b, Prim b) => (D s a -> M s (D s b)) -> a -> ST s (b, a)
+autodiff :: forall a b s. (Prim a, Num b, Prim b) => (D s a -> M s (D s b)) -> a -> ST s (b, a)
 autodiff f x = do
   nr <- newSTRef 1
   (y, a) <- runM (f $ MkD x 0) nr $ \(MkD y i) -> do
     n <- readSTRef nr
-    a <- newByteArray n
+    a <- newByteArray $ n * 8
+    fillByteArray a 0 (n * 8) 0
     writeByteArray @b a i 1
     pure (y, a)
   y' <- readByteArray a 0
@@ -42,31 +40,31 @@ autodiff f x = do
 lift :: Num a => a -> M s (D s a)
 lift x = MkM $ \nr k -> do
   i <- readSTRef nr
-  writeSTRef nr $ i + 1
-  k $ MkD x i
+  writeSTRef nr $! i + 1
+  k $! MkD x i
 
 {-# INLINE lift1 #-}
 lift1 :: (Num a, Prim a) => (a -> a) -> (a -> a -> a -> a) -> D s a -> M s (D s a)
 lift1 f f' (MkD x ix) = MkM $ \nr k -> do
   iy <- readSTRef nr
-  writeSTRef nr $ iy + 1
-  (y, a) <- k $ MkD (f x) iy
+  writeSTRef nr $! iy + 1
+  (y, a) <- k $! MkD (f x) iy
   y' <- readByteArray a iy
   x' <- readByteArray a ix
-  writeByteArray a ix $ f' x y' x'
+  writeByteArray a ix $! f' x y' x'
   pure (y, a)
 
 {-# INLINE lift2 #-}
 lift2 :: (Num a, Prim a) => (a -> a -> a) -> (a -> a -> a -> a -> a) -> (a -> a -> a -> a -> a) -> D s a -> D s a -> M s (D s a)
 lift2 f f1' f2' (MkD x ix) (MkD y iy) = MkM $ \nr k -> do
   iz <- readSTRef nr
-  writeSTRef nr $ iz + 1
-  (z, a) <- k $ MkD (f x y) iz
+  writeSTRef nr $! iz + 1
+  (z, a) <- k $! MkD (f x y) iz
   z' <- readByteArray a iz
   x' <- readByteArray a ix
-  writeByteArray a ix $ f1' x y z' x'
+  writeByteArray a ix $! f1' x y z' x'
   y' <- readByteArray a iy
-  writeByteArray a iy $ f2' x y z' y'
+  writeByteArray a iy $! f2' x y z' y'
   pure (z, a)
 
 instance (Num a, Prim a) => MNum (M s) (D s a) where
