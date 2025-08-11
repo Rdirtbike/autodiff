@@ -80,7 +80,7 @@ instance Floating a => MFloating (M s) (D s a) where
   pi = lift pi
   exp = lift1 exp $ \x y' -> (+ y' * exp x)
   log = lift1 log $ \x y' -> (+ y' / x)
-  sqrt = lift1 sqrt $ \x y' -> (- y' / sqrt x)
+  sqrt = lift1 sqrt $ \x y' -> (+ 0.5 * y' /  sqrt x)
   (**) =
     lift2
       (**)
