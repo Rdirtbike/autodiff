@@ -1,35 +1,26 @@
 module Data.Autodiff (D, autodiff) where
 
-import Control.Monad.ST (ST)
-import Data.Autodiff.MNum (MFloating, MFractional, MNum)
-import Data.Autodiff.MNum qualified
-import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef, writeSTRef)
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
+import Data.Unique (Unique, newUnique)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 
-newtype M s a = MkM {runM :: forall r. (a -> ST s r) -> ST s r}
-  deriving Functor
-
-instance Applicative (M s) where
-  pure x = MkM ($ x)
-  MkM f <*> MkM x = MkM $ \k -> f $ \g -> x (k . g)
-  x *> y = x >>= const y
-
-instance Monad (M s) where
-  MkM m >>= f = MkM $ \k -> m $ \x -> runM (f x) k
-
-data D s a = MkD !a {-# UNPACK #-} !(STRef s a)
+data D s a = MkD a Unique ((IORef a -> IO ()) -> IO ())
 
 {-# INLINEABLE autodiff #-}
-autodiff :: (Num a, Num b) => (D s a -> M s (D s b)) -> a -> ST s (b, a)
-autodiff f x = do
-  r <- newSTRef 0
-  y <- runM (f $ MkD x r) $
-    \(MkD y y') -> y <$ writeSTRef y' 1
-  y' <- readSTRef r
+autodiff :: (Num a, Num b) => (forall s. D s a -> D s b) -> a -> (b, a)
+autodiff f x = unsafeDupablePerformIO $ do
+  u <- newUnique
+  r <- newIORef 0
+  let MkD y _ g = f $ MkD x u ($ r)
+  g (`writeIORef` 1)
+  y' <- readIORef r
   pure (y, y')
 
 {-# INLINE lift #-}
-lift :: Num a => a -> M s (D s a)
-lift x = MkM $ \k -> newSTRef 0 >>= k . MkD x
+lift :: Num a => a -> D s a
+lift x = unsafeDupablePerformIO $ do
+  u <- newUnique
+  pure $ MkD x u (newIORef 0 >>=)
 
 {-# INLINE lift1 #-}
 lift1 ::
@@ -37,13 +28,14 @@ lift1 ::
   (a -> a) ->
   (a -> a -> a -> a) ->
   D s a ->
-  M s (D s a)
-lift1 f f' (MkD x x') = MkM $ \k -> do
-  r <- newSTRef 0
-  y <- k $ MkD (f x) r
-  y' <- readSTRef r
-  modifySTRef' x' $ f' x y'
-  pure y
+  D s a
+lift1 f f' (MkD x _ xd) = unsafeDupablePerformIO $ do
+  uy <- newUnique
+  pure $ MkD (f x) uy $ \k -> xd $ \x' -> do
+    r <- newIORef 0
+    k r
+    y' <- readIORef r
+    modifyIORef' x' $ f' x y'
 
 {-# INLINE lift2 #-}
 lift2 ::
@@ -53,34 +45,42 @@ lift2 ::
   (a -> a -> a -> a -> a) ->
   D s a ->
   D s a ->
-  M s (D s a)
-lift2 f f1' f2' (MkD x x') (MkD y y') = MkM $ \k -> do
-  r <- newSTRef 0
-  z <- k $ MkD (f x y) r
-  z' <- readSTRef r
-  modifySTRef' x' $ f1' x y z'
-  modifySTRef' y' $ f2' x y z'
-  pure z
+  D s a
+lift2 f f1' f2' (MkD x ux xd) (MkD y uy yd) = unsafeDupablePerformIO $ do
+  uz <- newUnique
+  pure $ MkD (f x y) uz $ \k -> xd $ \x' ->
+    if ux == uy
+      then do
+        r <- newIORef 0
+        k r
+        z' <- readIORef r
+        modifyIORef' x' $ f1' x y z' . f2' x y z'
+      else yd $ \y' -> do
+        r <- newIORef 0
+        k r
+        z' <- readIORef r
+        modifyIORef' x' $ f1' x y z'
+        modifyIORef' y' $ f2' x y z'
 
-instance Num a => MNum (M s) (D s a) where
+instance Num a => Num (D s a) where
   (+) = lift2 (+) (\_ _ z' -> (+ z')) (\_ _ z' -> (+ z'))
   (*) = lift2 (*) (\_ y z' -> (+ z' * y)) (\x _ z' -> (+ z' * x))
   (-) = lift2 (-) (\_ _ z' -> (+ z')) (\_ _ z' -> (- z'))
   negate = lift1 negate $ \_ y' -> (- y')
   abs = lift1 abs $ \x y' -> (+ y' * signum x)
-  signum (MkD x _) = lift $ signum x
+  signum (MkD x _ _) = lift $ signum x
   fromInteger n = lift $ fromInteger n
 
-instance Fractional a => MFractional (M s) (D s a) where
+instance Fractional a => Fractional (D s a) where
   (/) = lift2 (/) (\_ y z' -> (+ z' / y)) (\x y z' -> (- z' * x / (y * y)))
   recip = lift1 recip $ \x y' -> (- y' / (x * x))
   fromRational x = lift $ fromRational x
 
-instance Floating a => MFloating (M s) (D s a) where
+instance Floating a => Floating (D s a) where
   pi = lift pi
   exp = lift1 exp $ \x y' -> (+ y' * exp x)
   log = lift1 log $ \x y' -> (+ y' / x)
-  sqrt = lift1 sqrt $ \x y' -> (+ 0.5 * y' /  sqrt x)
+  sqrt = lift1 sqrt $ \x y' -> (+ 0.5 * y' / sqrt x)
   (**) =
     lift2
       (**)
@@ -105,7 +105,7 @@ instance Floating a => MFloating (M s) (D s a) where
   atanh = lift1 atanh $ \x y' -> (+ y' / (1 - x * x))
 
 instance Eq a => Eq (D s a) where
-  MkD x _ == MkD y _ = x == y
+  MkD x _ _ == MkD y _ _ = x == y
 
 instance Ord a => Ord (D s a) where
-  compare (MkD x _) (MkD y _) = compare x y
+  compare (MkD x _ _) (MkD y _ _) = compare x y
