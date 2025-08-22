@@ -1,85 +1,64 @@
-{-# LANGUAGE Strict #-}
-
 module Data.Autodiff (D, autodiff) where
 
-import Control.Monad.Primitive (RealWorld)
-import Data.IORef (IORef, atomicModifyIORef', modifyIORef, newIORef, readIORef, writeIORef)
-import Data.Primitive.ByteArray (MutableByteArray, fillByteArray, newByteArray, readByteArray, writeByteArray)
-import Data.Primitive.Types (Prim)
+import Control.Monad (join)
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import System.IO.Unsafe (unsafeDupablePerformIO, unsafePerformIO)
 
-type IOByteArray = MutableByteArray RealWorld
-
-data D a = MkD a Int
-
-{-# NOINLINE supply #-}
-supply :: IORef Int
-supply = unsafePerformIO $ newIORef 0
-
-{-# INLINE next #-}
-next :: IO Int
-next = atomicModifyIORef' supply $ \i -> (i + 1, i)
+data D a = MkD !a {-# UNPACK #-} !(IORef a)
 
 {-# NOINLINE backprop #-}
-backprop :: IORef (IOByteArray -> IO ())
+backprop :: IORef (IO ())
 backprop = unsafePerformIO $ newIORef mempty
 
 {-# INLINEABLE autodiff #-}
-autodiff :: forall a b. (Num a, Prim a, Num b, Prim b) => (D a -> D b) -> a -> (b, a)
+autodiff :: (Num a, Num b) => (D a -> D b) -> a -> (b, a)
 autodiff f x = unsafeDupablePerformIO $ do
-  writeIORef supply 1
   writeIORef backprop mempty
-  let !(MkD y iy) = f $ MkD x 0
-  n <- (8 *) <$> readIORef supply
-  a <- newByteArray n
-  fillByteArray a 0 n 0
-  writeByteArray a iy (1 :: b)
-  g <- readIORef backprop
-  g a
-  y' <- readByteArray a 0
-  pure (y, y')
+  r <- newIORef 0
+  let MkD y y' = f $ MkD x r
+  writeIORef y' 1
+  join $ readIORef backprop
+  x' <- readIORef r
+  pure (y, x')
 
 {-# INLINE lift #-}
 lift :: Num a => a -> D a
-lift x = unsafeDupablePerformIO $ MkD x <$> next
+lift x = unsafeDupablePerformIO $ MkD x <$> newIORef 0
 
 {-# INLINE lift1 #-}
 lift1 ::
-  (Num a, Prim a) =>
+  Num a =>
   (a -> a) ->
   (a -> a -> a -> a) ->
   D a ->
   D a
-lift1 f f' (MkD x ix) = unsafeDupablePerformIO $ do
-  iy <- next
-  modifyIORef backprop $ \g a -> do
-    y' <- readByteArray a iy
-    x' <- readByteArray a ix
-    writeByteArray a ix $ f' x y' x'
-    g a
-  pure $ MkD (f x) iy
+lift1 f f' (MkD x x') = unsafeDupablePerformIO $ do
+  r <- newIORef 0
+  modifyIORef' backprop $ \g -> do
+    y' <- readIORef r
+    modifyIORef' x' $ f' x y'
+    g
+  pure $ MkD (f x) r
 
 {-# INLINE lift2 #-}
 lift2 ::
-  (Num a, Prim a) =>
+  Num a =>
   (a -> a -> a) ->
   (a -> a -> a -> a -> a) ->
   (a -> a -> a -> a -> a) ->
   D a ->
   D a ->
   D a
-lift2 f f1' f2' (MkD x ix) (MkD y iy) = unsafeDupablePerformIO $ do
-  iz <- next
-  modifyIORef backprop $ \g a -> do
-    z' <- readByteArray a iz
-    x' <- readByteArray a ix
-    writeByteArray a ix $ f1' x y z' x'
-    y' <- readByteArray a iy
-    writeByteArray a iy $ f2' x y z' y'
-    g a
-  pure $ MkD (f x y) iz
+lift2 f f1' f2' (MkD x x') (MkD y y') = unsafeDupablePerformIO $ do
+  r <- newIORef 0
+  modifyIORef' backprop $ \g -> do
+    z' <- readIORef r
+    modifyIORef' x' $ f1' x y z'
+    modifyIORef' y' $ f2' x y z'
+    g
+  pure $ MkD (f x y) r
 
-instance (Num a, Prim a) => Num (D a) where
+instance Num a => Num (D a) where
   (+) = lift2 (+) (\_ _ z' -> (+ z')) (\_ _ z' -> (+ z'))
   (*) = lift2 (*) (\_ y z' -> (+ z' * y)) (\x _ z' -> (+ z' * x))
   (-) = lift2 (-) (\_ _ z' -> (+ z')) (\_ _ z' -> (- z'))
@@ -88,12 +67,12 @@ instance (Num a, Prim a) => Num (D a) where
   signum (MkD x _) = lift $ signum x
   fromInteger n = lift $ fromInteger n
 
-instance (Fractional a, Prim a) => Fractional (D a) where
+instance Fractional a => Fractional (D a) where
   (/) = lift2 (/) (\_ y z' -> (+ z' / y)) (\x y z' -> (- z' * x / (y * y)))
   recip = lift1 recip $ \x y' -> (- y' / (x * x))
   fromRational x = lift $ fromRational x
 
-instance (Floating a, Prim a) => Floating (D a) where
+instance Floating a => Floating (D a) where
   pi = lift pi
   exp = lift1 exp $ \x y' -> (+ y' * exp x)
   log = lift1 log $ \x y' -> (+ y' / x)
