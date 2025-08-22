@@ -1,85 +1,99 @@
+{-# LANGUAGE Strict #-}
+
 module Data.Autodiff (D, autodiff) where
 
-import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
-import Data.Unique (Unique, newUnique)
-import System.IO.Unsafe (unsafeDupablePerformIO)
+import Control.Monad.Primitive (RealWorld)
+import Data.IORef (IORef, atomicModifyIORef', modifyIORef, newIORef, readIORef, writeIORef)
+import Data.Primitive.ByteArray (MutableByteArray, fillByteArray, newByteArray, readByteArray, writeByteArray)
+import Data.Primitive.Types (Prim)
+import System.IO.Unsafe (unsafeDupablePerformIO, unsafePerformIO)
 
-data D a = MkD !a !Unique ((IORef a -> IO ()) -> IO ())
+type IOByteArray = MutableByteArray RealWorld
+
+data D a = MkD a Int
+
+{-# NOINLINE supply #-}
+supply :: IORef Int
+supply = unsafePerformIO $ newIORef 0
+
+{-# INLINE next #-}
+next :: IO Int
+next = atomicModifyIORef' supply $ \i -> (i + 1, i)
+
+{-# NOINLINE backprop #-}
+backprop :: IORef (IOByteArray -> IO ())
+backprop = unsafePerformIO $ newIORef mempty
 
 {-# INLINEABLE autodiff #-}
-autodiff :: (Num a, Num b) => (D a -> D b) -> a -> (b, a)
+autodiff :: forall a b. (Num a, Prim a, Num b, Prim b) => (D a -> D b) -> a -> (b, a)
 autodiff f x = unsafeDupablePerformIO $ do
-  u <- newUnique
-  r <- newIORef 0
-  let MkD y _ g = f $ MkD x u ($ r)
-  g (`writeIORef` 1)
-  y' <- readIORef r
+  writeIORef supply 1
+  writeIORef backprop mempty
+  let !(MkD y iy) = f $ MkD x 0
+  n <- (8 *) <$> readIORef supply
+  a <- newByteArray n
+  fillByteArray a 0 n 0
+  writeByteArray a iy (1 :: b)
+  g <- readIORef backprop
+  g a
+  y' <- readByteArray a 0
   pure (y, y')
 
 {-# INLINE lift #-}
 lift :: Num a => a -> D a
-lift x = unsafeDupablePerformIO $ do
-  u <- newUnique
-  pure $ MkD x u (newIORef 0 >>=)
+lift x = unsafeDupablePerformIO $ MkD x <$> next
 
 {-# INLINE lift1 #-}
 lift1 ::
-  Num a =>
+  (Num a, Prim a) =>
   (a -> a) ->
   (a -> a -> a -> a) ->
   D a ->
   D a
-lift1 f f' (MkD x _ xd) = unsafeDupablePerformIO $ do
-  u <- newUnique
-  pure $ MkD (f x) u $ \k -> xd $ \(!x') -> do
-    r <- newIORef 0
-    k r
-    y' <- readIORef r
-    modifyIORef' x' $ f' x y'
+lift1 f f' (MkD x ix) = unsafeDupablePerformIO $ do
+  iy <- next
+  modifyIORef backprop $ \g a -> do
+    y' <- readByteArray a iy
+    x' <- readByteArray a ix
+    writeByteArray a ix $ f' x y' x'
+    g a
+  pure $ MkD (f x) iy
 
 {-# INLINE lift2 #-}
 lift2 ::
-  Num a =>
+  (Num a, Prim a) =>
   (a -> a -> a) ->
   (a -> a -> a -> a -> a) ->
   (a -> a -> a -> a -> a) ->
   D a ->
   D a ->
   D a
-lift2 f f1' f2' (MkD x ux xd) (MkD y uy yd)
-  | ux == uy = unsafeDupablePerformIO $ do
-      uz <- newUnique
-      pure $ MkD z uz $ \k -> xd $ \(!x') -> do
-        r <- newIORef 0
-        k r
-        z' <- readIORef r
-        modifyIORef' x' $ f1' x y z' . f2' x y z'
-  | otherwise = unsafeDupablePerformIO $ do
-      uz <- newUnique
-      pure $ MkD z uz $ \k -> xd $ \(!x') -> yd $ \(!y') -> do
-        r <- newIORef 0
-        k r
-        z' <- readIORef r
-        modifyIORef' x' $ f1' x y z'
-        modifyIORef' y' $ f2' x y z'
- where
-  z = f x y
+lift2 f f1' f2' (MkD x ix) (MkD y iy) = unsafeDupablePerformIO $ do
+  iz <- next
+  modifyIORef backprop $ \g a -> do
+    z' <- readByteArray a iz
+    x' <- readByteArray a ix
+    writeByteArray a ix $ f1' x y z' x'
+    y' <- readByteArray a iy
+    writeByteArray a iy $ f2' x y z' y'
+    g a
+  pure $ MkD (f x y) iz
 
-instance Num a => Num (D a) where
+instance (Num a, Prim a) => Num (D a) where
   (+) = lift2 (+) (\_ _ z' -> (+ z')) (\_ _ z' -> (+ z'))
   (*) = lift2 (*) (\_ y z' -> (+ z' * y)) (\x _ z' -> (+ z' * x))
   (-) = lift2 (-) (\_ _ z' -> (+ z')) (\_ _ z' -> (- z'))
   negate = lift1 negate $ \_ y' -> (- y')
   abs = lift1 abs $ \x y' -> (+ y' * signum x)
-  signum (MkD x _ _) = lift $ signum x
+  signum (MkD x _) = lift $ signum x
   fromInteger n = lift $ fromInteger n
 
-instance Fractional a => Fractional (D a) where
+instance (Fractional a, Prim a) => Fractional (D a) where
   (/) = lift2 (/) (\_ y z' -> (+ z' / y)) (\x y z' -> (- z' * x / (y * y)))
   recip = lift1 recip $ \x y' -> (- y' / (x * x))
   fromRational x = lift $ fromRational x
 
-instance Floating a => Floating (D a) where
+instance (Floating a, Prim a) => Floating (D a) where
   pi = lift pi
   exp = lift1 exp $ \x y' -> (+ y' * exp x)
   log = lift1 log $ \x y' -> (+ y' / x)
@@ -108,7 +122,7 @@ instance Floating a => Floating (D a) where
   atanh = lift1 atanh $ \x y' -> (+ y' / (1 - x * x))
 
 instance Eq a => Eq (D a) where
-  MkD x _ _ == MkD y _ _ = x == y
+  MkD x _ == MkD y _ = x == y
 
 instance Ord a => Ord (D a) where
-  compare (MkD x _ _) (MkD y _ _) = compare x y
+  compare (MkD x _) (MkD y _) = compare x y
