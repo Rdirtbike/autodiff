@@ -4,10 +4,10 @@ import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Unique (Unique, newUnique)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
-data D s a = MkD a Unique ((IORef a -> IO ()) -> IO ())
+data D a = MkD !a !Unique ((IORef a -> IO ()) -> IO ())
 
 {-# INLINEABLE autodiff #-}
-autodiff :: (Num a, Num b) => (forall s. D s a -> D s b) -> a -> (b, a)
+autodiff :: (Num a, Num b) => (D a -> D b) -> a -> (b, a)
 autodiff f x = unsafeDupablePerformIO $ do
   u <- newUnique
   r <- newIORef 0
@@ -17,7 +17,7 @@ autodiff f x = unsafeDupablePerformIO $ do
   pure (y, y')
 
 {-# INLINE lift #-}
-lift :: Num a => a -> D s a
+lift :: Num a => a -> D a
 lift x = unsafeDupablePerformIO $ do
   u <- newUnique
   pure $ MkD x u (newIORef 0 >>=)
@@ -27,11 +27,11 @@ lift1 ::
   Num a =>
   (a -> a) ->
   (a -> a -> a -> a) ->
-  D s a ->
-  D s a
+  D a ->
+  D a
 lift1 f f' (MkD x _ xd) = unsafeDupablePerformIO $ do
-  uy <- newUnique
-  pure $ MkD (f x) uy $ \k -> xd $ \x' -> do
+  u <- newUnique
+  pure $ MkD (f x) u $ \k -> xd $ \(!x') -> do
     r <- newIORef 0
     k r
     y' <- readIORef r
@@ -43,26 +43,29 @@ lift2 ::
   (a -> a -> a) ->
   (a -> a -> a -> a -> a) ->
   (a -> a -> a -> a -> a) ->
-  D s a ->
-  D s a ->
-  D s a
-lift2 f f1' f2' (MkD x ux xd) (MkD y uy yd) = unsafeDupablePerformIO $ do
-  uz <- newUnique
-  pure $ MkD (f x y) uz $ \k -> xd $ \x' ->
-    if ux == uy
-      then do
+  D a ->
+  D a ->
+  D a
+lift2 f f1' f2' (MkD x ux xd) (MkD y uy yd)
+  | ux == uy = unsafeDupablePerformIO $ do
+      uz <- newUnique
+      pure $ MkD z uz $ \k -> xd $ \(!x') -> do
         r <- newIORef 0
         k r
         z' <- readIORef r
         modifyIORef' x' $ f1' x y z' . f2' x y z'
-      else yd $ \y' -> do
+  | otherwise = unsafeDupablePerformIO $ do
+      uz <- newUnique
+      pure $ MkD z uz $ \k -> xd $ \(!x') -> yd $ \(!y') -> do
         r <- newIORef 0
         k r
         z' <- readIORef r
         modifyIORef' x' $ f1' x y z'
         modifyIORef' y' $ f2' x y z'
+ where
+  z = f x y
 
-instance Num a => Num (D s a) where
+instance Num a => Num (D a) where
   (+) = lift2 (+) (\_ _ z' -> (+ z')) (\_ _ z' -> (+ z'))
   (*) = lift2 (*) (\_ y z' -> (+ z' * y)) (\x _ z' -> (+ z' * x))
   (-) = lift2 (-) (\_ _ z' -> (+ z')) (\_ _ z' -> (- z'))
@@ -71,12 +74,12 @@ instance Num a => Num (D s a) where
   signum (MkD x _ _) = lift $ signum x
   fromInteger n = lift $ fromInteger n
 
-instance Fractional a => Fractional (D s a) where
+instance Fractional a => Fractional (D a) where
   (/) = lift2 (/) (\_ y z' -> (+ z' / y)) (\x y z' -> (- z' * x / (y * y)))
   recip = lift1 recip $ \x y' -> (- y' / (x * x))
   fromRational x = lift $ fromRational x
 
-instance Floating a => Floating (D s a) where
+instance Floating a => Floating (D a) where
   pi = lift pi
   exp = lift1 exp $ \x y' -> (+ y' * exp x)
   log = lift1 log $ \x y' -> (+ y' / x)
@@ -104,8 +107,8 @@ instance Floating a => Floating (D s a) where
   acosh = lift1 acosh $ \x y' -> (+ y' / sqrt (x * x - 1))
   atanh = lift1 atanh $ \x y' -> (+ y' / (1 - x * x))
 
-instance Eq a => Eq (D s a) where
+instance Eq a => Eq (D a) where
   MkD x _ _ == MkD y _ _ = x == y
 
-instance Ord a => Ord (D s a) where
+instance Ord a => Ord (D a) where
   compare (MkD x _ _) (MkD y _ _) = compare x y
