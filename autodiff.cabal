@@ -82,7 +82,15 @@ library
 executable test
     import: warnings
     main-is: Test.hs
-    build-depends: base, autodiff, vector
+    build-depends: base, autodiff
+    default-language: GHC2021
+    default-extensions: LexicalNegation
+    ghc-options: -ddump-simpl -ddump-to-file -ddump-simpl-stats
+
+executable ref
+    import: warnings
+    main-is: Ref.hs
+    build-depends: base, ad
     default-language: GHC2021
     default-extensions: LexicalNegation
     ghc-options: -ddump-simpl -ddump-to-file -ddump-simpl-stats
