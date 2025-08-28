@@ -1,64 +1,30 @@
-{-# LANGUAGE DerivingVia #-}
-{-# LANGUAGE TypeFamilies #-}
-
 module Data.Autodiff (D, autodiff, asConst) where
 
-import Control.Monad (join, replicateM, zipWithM_)
+import Data.Autodiff.VectorSpace (VectorSpace (..))
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
-import GHC.IsList (IsList (..))
-import System.IO.Unsafe (unsafeDupablePerformIO, unsafePerformIO)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 
-class VectorSpace v where
-  zero :: v
-  (.+) :: v -> v -> v
-
-infixl 6 .+
-
-instance Num a => VectorSpace [a] where
-  zero = []
-
-  (x : xs) .+ (y : ys) = x + y : xs .+ ys
-  xs .+ [] = xs
-  [] .+ ys = ys
-
-newtype Field a = MkF a
-
-instance Num a => VectorSpace (Field a) where
-  zero = MkF 0
-  MkF x .+ MkF y = MkF $ x + y
-
-deriving via Field Double instance VectorSpace Double
-
-deriving via Field Float instance VectorSpace Float
-
-deriving via Field Int instance VectorSpace Int
-
-deriving via Field Word instance VectorSpace Word
-
-data D s a = MkD !a {-# UNPACK #-} !(IORef a)
+data D s a = MkD a (IORef a) (IO ())
 
 {-# INLINEABLE asConst #-}
 asConst :: (Integral a, Num b) => D s a -> b
-asConst (MkD x _) = fromIntegral x
-
-{-# NOINLINE backprop #-}
-backprop :: IORef (IO ())
-backprop = unsafePerformIO $ newIORef mempty
+asConst (MkD x _ _) = fromIntegral x
 
 {-# INLINEABLE autodiff #-}
 autodiff :: (VectorSpace a, Num b) => (forall s. D s a -> D s b) -> a -> (b, a)
 autodiff f x = unsafeDupablePerformIO $ do
-  writeIORef backprop mempty
   r <- newIORef zero
-  let MkD y y' = f $ MkD x r
+  let MkD y y' backprop = f $ MkD x r mempty
   writeIORef y' 1
-  join $ readIORef backprop
+  backprop
   x' <- readIORef r
   pure (y, x')
 
 {-# INLINE lift #-}
 lift :: a -> a -> D s a
-lift z x = unsafeDupablePerformIO $ MkD x <$> newIORef z
+lift z x = unsafeDupablePerformIO $ do
+  r <- newIORef z
+  pure $ MkD x r mempty
 
 {-# INLINE lift1 #-}
 lift1 ::
@@ -67,35 +33,39 @@ lift1 ::
   (a -> b -> a -> a) ->
   D s a ->
   D s b
-lift1 z f f' (MkD x x') = unsafeDupablePerformIO $ do
+lift1 z f f' (MkD x x' xb) = unsafeDupablePerformIO $ do
   r <- newIORef z
-  modifyIORef' backprop $ \g -> do
+  pure $ MkD (f x) r $ do
     y' <- readIORef r
     modifyIORef' x' $ f' x y'
-    g
-  pure $ MkD (f x) r
+    xb
 
 {-# INLINE lift2 #-}
 lift2 ::
-  c ->
-  (a -> b -> c) ->
-  (a -> b -> c -> a -> a) ->
-  (a -> b -> c -> b -> b) ->
+  b ->
+  (a -> a -> b) ->
+  (a -> a -> b -> a -> a) ->
+  (a -> a -> b -> a -> a) ->
   D s a ->
-  D s b ->
-  D s c
-lift2 z f f1' f2' (MkD x x') (MkD y y') = unsafeDupablePerformIO $ do
+  D s a ->
+  D s b
+lift2 z f f1' f2' (MkD x x' xb) (MkD y y' yb) = unsafeDupablePerformIO $ do
   r <- newIORef z
-  modifyIORef' backprop $ \g -> do
+  pure $ MkD (f x y) r $ do
     z' <- readIORef r
-    modifyIORef' x' $ f1' x y z'
-    modifyIORef' y' $ f2' x y z'
-    g
-  pure $ MkD (f x y) r
+    if x' == y'
+      then do
+        modifyIORef' x' $ f1' x y z' . f2' x y z'
+        xb
+      else do
+        modifyIORef' x' $ f1' x y z'
+        modifyIORef' y' $ f2' x y z'
+        xb
+        yb
 
 {-# INLINE project #-}
 project :: (a -> b -> c) -> D s a -> D s b -> c
-project f (MkD x _) (MkD y _) = f x y
+project f (MkD x _ _) (MkD y _ _) = f x y
 
 instance Num a => Num (D s a) where
   (+) = lift2 0 (+) (\_ _ z' -> (+ z')) (\_ _ z' -> (+ z'))
@@ -103,7 +73,7 @@ instance Num a => Num (D s a) where
   (-) = lift2 0 (-) (\_ _ z' -> (+ z')) (\_ _ z' -> (- z'))
   negate = lift1 0 negate $ \_ y' -> (- y')
   abs = lift1 0 abs $ \x y' -> (+ y' * signum x)
-  signum (MkD x _) = lift 0 $ signum x
+  signum (MkD x _ _) = lift 0 $ signum x
   fromInteger n = lift 0 $ fromInteger n
 
 instance Fractional a => Fractional (D s a) where
@@ -151,20 +121,3 @@ instance Ord a => Ord (D s a) where
   (>) = project (>)
   (<=) = project (<=)
   (>=) = project (>=)
-
-instance Num a => IsList (D s [a]) where
-  type Item (D s [a]) = D s a
-  toList (MkD xs x') = unsafeDupablePerformIO $ do
-    rs <- replicateM (length xs) $ newIORef 0
-    modifyIORef' backprop $ \g -> do
-      xs' <- traverse readIORef rs
-      modifyIORef' x' (.+ xs')
-      g
-    pure $ zipWith MkD xs rs
-  fromList xs = unsafeDupablePerformIO $ do
-    r <- newIORef []
-    modifyIORef' backprop $ \g -> do
-      xs' <- readIORef r
-      zipWithM_ (\xr x' -> modifyIORef' xr (+ x')) (fmap (\(MkD _ x') -> x') xs) xs'
-      g
-    pure $ MkD (fmap (\(MkD x _) -> x) xs) r

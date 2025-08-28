@@ -61,6 +61,7 @@ library
     -- Modules exported by the library.
     exposed-modules:
         Data.Autodiff,
+        Data.Autodiff.VectorSpace,
 
     -- Modules included in this library but not exported.
     other-modules:
