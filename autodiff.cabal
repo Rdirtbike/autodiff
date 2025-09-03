@@ -62,15 +62,18 @@ library
     exposed-modules:
         Data.Autodiff,
         Data.Autodiff.VectorSpace,
+        Data.Autodiff.DVec,
+        Data.Autodiff.DMVec,
 
     -- Modules included in this library but not exported.
     other-modules:
+        Data.Autodiff.Internal,
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
-    build-depends:    base ^>=4.19.2.0
+    build-depends:    base ^>=4.19.2.0, vector
 
     -- Directories containing source files.
     hs-source-dirs:   src
