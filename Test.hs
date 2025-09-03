@@ -1,15 +1,12 @@
 module Main (main) where
 
 import Data.Autodiff (autodiff)
+import GHC.IsList (toList)
 import System.Environment (getArgs)
-
-fib :: (Num a, Ord a) => a -> a
-fib n
-  | n <= 1 = n
-  | otherwise = fib (n - 1) + fib (n - 2)
 
 main :: IO ()
 main = do
   [ns] <- getArgs
-  n <- readIO @Int ns
-  print $ autodiff fib n
+  n <- readIO @Double ns
+  let !(!_, !_) = autodiff (product . toList) [1 .. n]
+  pure ()

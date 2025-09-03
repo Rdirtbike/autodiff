@@ -1,8 +1,11 @@
+{-# LANGUAGE TypeFamilies #-}
+
 module Data.Autodiff (D, autodiff, asConst) where
 
-import Control.Monad (join)
+import Control.Monad (join, replicateM, zipWithM_)
 import Data.Autodiff.VectorSpace (VectorSpace (..))
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
+import GHC.IsList (IsList (Item, fromList, toList))
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
 data D s a = MkD !a {-# UNPACK #-} !(IORef a)
@@ -123,3 +126,24 @@ instance Ord a => Ord (D s a) where
   (>) = project (>)
   (<=) = project (<=)
   (>=) = project (>=)
+
+instance Num a => IsList (D s [a]) where
+  type Item (D s [a]) = D s a
+  {-# INLINEABLE fromList #-}
+  fromList list = unsafeDupablePerformIO $ do
+    let xs = fmap (\(MkD x _) -> x) list
+        xs' = fmap (\(MkD _ x') -> x') list
+    r <- newIORef []
+    modifyIORef' tape $ \backprop -> do
+      ys' <- readIORef r
+      zipWithM_ (\x' y' -> modifyIORef' x' (+ y')) xs' ys'
+      backprop
+    pure $ MkD xs r
+  {-# INLINEABLE toList #-}
+  toList (MkD xs xs') = unsafeDupablePerformIO $ do
+    rs <- replicateM (length xs) $ newIORef 0
+    modifyIORef' tape $ \backprop -> do
+      ys' <- traverse readIORef rs
+      modifyIORef' xs' (.+ ys')
+      backprop
+    pure $ zipWith MkD xs rs
