@@ -1,21 +1,16 @@
-{-# LANGUAGE TypeFamilies #-}
+module Data.Autodiff.Dual (Dual (..), tape) where
 
-module Data.Autodiff.Internal (D (..), tape, lift, lift1, lift2) where
-
-import Control.Monad (replicateM, zipWithM_)
-import Data.Autodiff.VectorSpace (VectorSpace (..))
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
-import GHC.IsList (IsList (Item, fromList, toList))
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
-data D s a = MkD !a {-# UNPACK #-} !(IORef a)
+data Dual a = MkD !a {-# UNPACK #-} !(IORef a)
 
 {-# NOINLINE tape #-}
 tape :: IORef (IO ())
 tape = unsafeDupablePerformIO $ newIORef mempty
 
 {-# INLINE lift #-}
-lift :: a -> a -> D s a
+lift :: a -> a -> Dual a
 lift z x = unsafeDupablePerformIO $ do
   r <- newIORef z
   pure $ MkD x r
@@ -25,8 +20,8 @@ lift1 ::
   b ->
   (a -> b) ->
   (a -> b -> a -> a) ->
-  D s a ->
-  D s b
+  Dual a ->
+  Dual b
 lift1 z f f' (MkD x x') = unsafeDupablePerformIO $ do
   r <- newIORef z
   modifyIORef' tape $ \backprop -> do
@@ -37,13 +32,13 @@ lift1 z f f' (MkD x x') = unsafeDupablePerformIO $ do
 
 {-# INLINE lift2 #-}
 lift2 ::
-  b ->
-  (a -> a -> b) ->
-  (a -> a -> b -> a -> a) ->
-  (a -> a -> b -> a -> a) ->
-  D s a ->
-  D s a ->
-  D s b
+  c ->
+  (a -> b -> c) ->
+  (a -> b -> c -> a -> a) ->
+  (a -> b -> c -> b -> b) ->
+  Dual a ->
+  Dual b ->
+  Dual c
 lift2 z f f1' f2' (MkD x x') (MkD y y') = unsafeDupablePerformIO $ do
   r <- newIORef z
   modifyIORef' tape $ \backprop -> do
@@ -54,10 +49,10 @@ lift2 z f f1' f2' (MkD x x') (MkD y y') = unsafeDupablePerformIO $ do
   pure $ MkD (f x y) r
 
 {-# INLINE project #-}
-project :: (a -> b -> c) -> D s a -> D s b -> c
+project :: (a -> b -> c) -> Dual a -> Dual b -> c
 project f (MkD x _) (MkD y _) = f x y
 
-instance Num a => Num (D s a) where
+instance Num a => Num (Dual a) where
   (+) = lift2 0 (+) (\_ _ z' -> (+ z')) (\_ _ z' -> (+ z'))
   (*) = lift2 0 (*) (\_ y z' -> (+ z' * y)) (\x _ z' -> (+ z' * x))
   (-) = lift2 0 (-) (\_ _ z' -> (+ z')) (\_ _ z' -> (- z'))
@@ -66,12 +61,12 @@ instance Num a => Num (D s a) where
   signum (MkD x _) = lift 0 $ signum x
   fromInteger n = lift 0 $ fromInteger n
 
-instance Fractional a => Fractional (D s a) where
+instance Fractional a => Fractional (Dual a) where
   (/) = lift2 0 (/) (\_ y z' -> (+ z' / y)) (\x y z' -> (- z' * x / (y * y)))
   recip = lift1 0 recip $ \x y' -> (- y' / (x * x))
   fromRational x = lift 0 $ fromRational x
 
-instance Floating a => Floating (D s a) where
+instance Floating a => Floating (Dual a) where
   pi = lift 0 pi
   exp = lift1 0 exp $ \x y' -> (+ y' * exp x)
   log = lift1 0 log $ \x y' -> (+ y' / x)
@@ -101,34 +96,13 @@ instance Floating a => Floating (D s a) where
   acosh = lift1 0 acosh $ \x y' -> (+ y' / sqrt (x * x - 1))
   atanh = lift1 0 atanh $ \x y' -> (+ y' / (1 - x * x))
 
-instance Eq a => Eq (D s a) where
+instance Eq a => Eq (Dual a) where
   (==) = project (==)
   (/=) = project (/=)
 
-instance Ord a => Ord (D s a) where
+instance Ord a => Ord (Dual a) where
   compare = project compare
   (<) = project (<)
   (>) = project (>)
   (<=) = project (<=)
   (>=) = project (>=)
-
-instance Num a => IsList (D s [a]) where
-  type Item (D s [a]) = D s a
-  {-# INLINEABLE fromList #-}
-  fromList list = unsafeDupablePerformIO $ do
-    let xs = fmap (\(MkD x _) -> x) list
-        xs' = fmap (\(MkD _ x') -> x') list
-    r <- newIORef []
-    modifyIORef' tape $ \backprop -> do
-      ys' <- readIORef r
-      zipWithM_ (\x' y' -> modifyIORef' x' (+ y')) xs' ys'
-      backprop
-    pure $ MkD xs r
-  {-# INLINEABLE toList #-}
-  toList (MkD xs xs') = unsafeDupablePerformIO $ do
-    rs <- replicateM (length xs) $ newIORef 0
-    modifyIORef' tape $ \backprop -> do
-      ys' <- traverse readIORef rs
-      modifyIORef' xs' (.+ ys')
-      backprop
-    pure $ zipWith MkD xs rs
